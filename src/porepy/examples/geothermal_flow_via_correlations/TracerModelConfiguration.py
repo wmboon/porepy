@@ -17,27 +17,20 @@ class BoundaryConditions(BoundaryConditionsCF):
 
     def bc_type_fourier_flux(self, sd: pp.Grid) -> pp.BoundaryCondition:
         facet_idx = np.concatenate(self.get_inlet_outlet_sides(sd))
+        sides = self.domain_boundary_sides(sd)
+        facet_idx = sides.east + sides.west
         return pp.BoundaryCondition(sd, facet_idx, "dir")
 
     def bc_type_darcy_flux(self, sd: pp.Grid) -> pp.BoundaryCondition:
         facet_idx = np.concatenate(self.get_inlet_outlet_sides(sd))
-        # facet_idx = sd.get_boundary_faces()
+        sides = self.domain_boundary_sides(sd)
+        facet_idx = sides.east + sides.west
         return pp.BoundaryCondition(sd, facet_idx, "dir")
-
-    # def bc_type_advective_flux(self, sd: pp.Grid) -> pp.BoundaryCondition:
-    #     facet_idx = np.concatenate(self.get_inlet_outlet_sides(sd))
-    #     return pp.BoundaryCondition(sd, facet_idx, "dir")
 
     def bc_values_pressure(self, boundary_grid: pp.BoundaryGrid) -> np.ndarray:
         inlet_idx, outlet_idx = self.get_inlet_outlet_sides(boundary_grid)
         p_inlet = 11.0e6
         p_outlet = 1.0e6
-
-        # xc = boundary_grid.cell_centers.T
-        # lx = 10.0
-        # p_D = lambda x: p_inlet*(1-x[0]/lx) + p_outlet*(x[0]/lx)
-        # p = np.fromiter(map(p_D,xc),dtype=float)
-        # return p
 
         p = p_outlet * np.ones(boundary_grid.num_cells)
         p[inlet_idx] = p_inlet
@@ -51,6 +44,16 @@ class BoundaryConditions(BoundaryConditionsCF):
         h = h_init * np.ones(boundary_grid.num_cells)
         h[inlet_idx] = h_inlet
         return h
+
+    def bc_values_temperature(self, boundary_grid: pp.BoundaryGrid) -> np.ndarray:
+        inlet_idx, outlet_idx = self.get_inlet_outlet_sides(boundary_grid)
+        t_inlet = 523.15
+        t_outlet = 473.15
+
+        t = t_outlet * np.ones(boundary_grid.num_cells)
+        t[inlet_idx] = t_inlet
+        t[outlet_idx] = t_outlet
+        return t
 
     def bc_values_overall_fraction(
         self, component: ppc.Component, boundary_grid: pp.BoundaryGrid

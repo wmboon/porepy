@@ -30,6 +30,8 @@ from __future__ import annotations
 import os
 import time
 
+import scipy.sparse as sps
+import matplotlib.pyplot as plt
 os.environ["NUMBA_DISABLE_JIT"] = str(0)
 
 import matplotlib.pyplot as plt
@@ -75,6 +77,13 @@ params = {
 
 
 class GeothermalFlowModel(FlowModel):
+
+    # def after_nonlinear_iteration(self, nonlinear_increment: np.ndarray) -> None:
+    #     super().after_nonlinear_iteration(nonlinear_increment)
+    #     self.update_secondary_quantities()
+    #     # After updating the fluid properties, update discretizations
+    #     self.update_discretizations()
+
 
     def after_nonlinear_convergence(self, iteration_counter) -> None:
         tb = time.time()
@@ -203,5 +212,34 @@ print("Elapsed time run_time_dependent_model: ", te - tb)
 print("Total number of DoF: ", model.equation_system.num_dofs())
 print("Mixed-dimensional grid information: ", model.mdg)
 
-mn = model.darcy_flux(model.mdg.subdomains()).value(model.equation_system)[model.domain_boundary_sides(model.mdg.subdomains()[0]).north]
-print("normal flux: ", mn)
+sds = model.mdg.subdomains()
+flux_op = model.darcy_flux(sds) # this is a facet integrated quantity
+mn_flux = flux_op.value(model.equation_system) / sds[0].face_areas
+bc_sides = model.domain_boundary_sides(sds[0])
+print("normal flux east: ", mn_flux[bc_sides.east])
+print("normal flux west: ", mn_flux[bc_sides.west])
+print("normal flux north: ", mn_flux[bc_sides.north])
+print("normal flux south: ", mn_flux[bc_sides.south])
+
+
+# load external jacobian
+with open('data.npy', 'rb') as f:
+    data = np.load(f)
+with open('indices.npy', 'rb') as f:
+    indices = np.load(f)
+with open('indptr.npy', 'rb') as f:
+    indptr = np.load(f)
+
+single_physics_jac = sps.csr_matrix((data, indices, indptr))
+
+model.assemble_linear_system()
+jac, res = model.linear_system
+test = model.primary_equation_names
+trial = model.primary_variable_names
+
+i_idx = model.equation_system.assembled_equation_indices[test[0]]
+j_idx = model.equation_system.dofs_of(trial[0:1])
+
+multi_physics_jac = jac[i_idx,:][:,j_idx]
+aka = 0
+
