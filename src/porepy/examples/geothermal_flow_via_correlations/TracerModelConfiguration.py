@@ -39,8 +39,8 @@ class BoundaryConditions(BoundaryConditionsCF):
 
     def bc_values_enthalpy(self, boundary_grid: pp.BoundaryGrid) -> np.ndarray:
         inlet_idx, _ = self.get_inlet_outlet_sides(boundary_grid)
-        h_init = 2.0e3
-        h_inlet = 2.0e3
+        h_init = 2092.6
+        h_inlet = 2092.6
         h = h_init * np.ones(boundary_grid.num_cells)
         h[inlet_idx] = h_inlet
         return h
