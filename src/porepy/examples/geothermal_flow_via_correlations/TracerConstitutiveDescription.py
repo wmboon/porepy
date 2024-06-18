@@ -34,13 +34,20 @@ def temperature_func(
 
     nc = len(thermodynamic_dependencies[0])
 
-    factor = 0.25
-    vals = np.array(h) * factor
+    # # case 0
+    # factor = 0.25
+    # vals = np.array(h) * factor
+    # # row-wise storage of derivatives, (3, nc) array
+    # diffs = np.zeros((len(thermodynamic_dependencies), nc))
+    # diffs[1, :] = 1.0 * factor
+
+    # case 1
+    vals = 400 + ((h - 1500.0)**3)/(250.0**3)
+    dtdh = (3.0*(h - 1500.0)**2) / 15625000.0
     # row-wise storage of derivatives, (3, nc) array
     diffs = np.zeros((len(thermodynamic_dependencies), nc))
-    diffs[1, :] = 1.0 * factor
+    diffs[1, :] = dtdh
     return vals, diffs
-
 
 def H2O_liq_func(
     *thermodynamic_dependencies: np.ndarray,

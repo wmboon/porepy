@@ -47,7 +47,7 @@ else:
     from DriesnerModelConfiguration import DriesnerBrineFlowModel as FlowModel
 
 day = 86400
-t_scale = 1000000.0
+t_scale = 1.0
 tf = 0.025 * day * t_scale
 dt = 0.025 * day * t_scale
 time_manager = pp.TimeManager(
@@ -211,6 +211,8 @@ te = time.time()
 print("Elapsed time run_time_dependent_model: ", te - tb)
 print("Total number of DoF: ", model.equation_system.num_dofs())
 print("Mixed-dimensional grid information: ", model.mdg)
+print("Final simulation time: ", tf)
+print("Time step size: ", dt)
 
 sds = model.mdg.subdomains()
 flux_op = model.darcy_flux(sds) # this is a facet integrated quantity
