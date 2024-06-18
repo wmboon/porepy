@@ -47,8 +47,8 @@ else:
     from DriesnerModelConfiguration import DriesnerBrineFlowModel as FlowModel
 
 day = 86400
-t_scale = 1.0
-tf = 0.025 * day * t_scale
+t_scale = 2.0
+tf = 0.25 * day * t_scale
 dt = 0.025 * day * t_scale
 time_manager = pp.TimeManager(
     schedule=[0.0, tf],
@@ -72,7 +72,7 @@ params = {
     "petsc_solver_q": False,
     "nl_convergence_tol": np.inf,
     "nl_convergence_tol_res": 1.0e-5,
-    "max_iterations": 25,
+    "max_iterations": 50,
 }
 
 

@@ -1,7 +1,7 @@
 from typing import Callable, Sequence
 
 import numpy as np
-
+from scipy import special
 import porepy as pp
 import porepy.compositional as ppc
 from porepy.models.compositional_flow import SecondaryEquationsMixin
@@ -41,9 +41,19 @@ def temperature_func(
     # diffs = np.zeros((len(thermodynamic_dependencies), nc))
     # diffs[1, :] = 1.0 * factor
 
-    # case 1
-    vals = 400 + ((h - 1500.0)**3)/(250.0**3)
-    dtdh = (3.0*(h - 1500.0)**2) / 15625000.0
+    # # case 1
+    # vals = 400 + ((h - 1500.0)**3)/(250.0**3)
+    # dtdh = (3.0*(h - 1500.0)**2) / 15625000.0
+    # # row-wise storage of derivatives, (3, nc) array
+    # diffs = np.zeros((len(thermodynamic_dependencies), nc))
+    # diffs[1, :] = dtdh
+
+    # case 2
+    fp_alpha = 3.5
+    vals = 400 + special.erfi(((-1500 + h) * fp_alpha) / 1875.) / (3 ** fp_alpha)
+    dtdh = (2 * (3.0 ** (-1 - fp_alpha)) * np.exp(
+        (((-1500 + h) ** 2) * (fp_alpha ** 2)) / 3.515625e6) * fp_alpha) / (
+                625. * np.sqrt(np.pi))
     # row-wise storage of derivatives, (3, nc) array
     diffs = np.zeros((len(thermodynamic_dependencies), nc))
     diffs[1, :] = dtdh

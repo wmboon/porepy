@@ -39,16 +39,16 @@ class BoundaryConditions(BoundaryConditionsCF):
 
     def bc_values_enthalpy(self, boundary_grid: pp.BoundaryGrid) -> np.ndarray:
         inlet_idx, _ = self.get_inlet_outlet_sides(boundary_grid)
-        h_init = 2092.6
-        h_inlet = 2092.6
+        h_init = 3000
+        h_inlet = 3000
         h = h_init * np.ones(boundary_grid.num_cells)
         h[inlet_idx] = h_inlet
         return h
 
     def bc_values_temperature(self, boundary_grid: pp.BoundaryGrid) -> np.ndarray:
         inlet_idx, outlet_idx = self.get_inlet_outlet_sides(boundary_grid)
-        t_inlet = 413.319
-        t_outlet = 392
+        t_inlet = 411.863
+        t_outlet = 398.636
 
         t = t_outlet * np.ones(boundary_grid.num_cells)
         t[inlet_idx] = t_inlet
@@ -79,7 +79,7 @@ class InitialConditions(InitialConditionsCF):
         return np.ones(sd.num_cells) * p_init
 
     def initial_enthalpy(self, sd: pp.Grid) -> np.ndarray:
-        h = 1000.0
+        h = 250.0
         return np.ones(sd.num_cells) * h
 
     def initial_overall_fraction(
