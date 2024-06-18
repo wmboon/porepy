@@ -34,9 +34,7 @@ import scipy.sparse as sps
 import matplotlib.pyplot as plt
 os.environ["NUMBA_DISABLE_JIT"] = str(0)
 
-import matplotlib.pyplot as plt
 import numpy as np
-
 import porepy as pp
 
 tracer_like_setting_q = True
@@ -47,9 +45,10 @@ else:
     from DriesnerModelConfiguration import DriesnerBrineFlowModel as FlowModel
 
 day = 86400
-t_scale = 2.0
-tf = 0.25 * day * t_scale
+t_scale = 1000.0
+tf = 0.025 * day * t_scale
 dt = 0.025 * day * t_scale
+t_eps = 10.0
 time_manager = pp.TimeManager(
     schedule=[0.0, tf],
     dt_init=dt,
@@ -72,7 +71,7 @@ params = {
     "petsc_solver_q": False,
     "nl_convergence_tol": np.inf,
     "nl_convergence_tol_res": 1.0e-5,
-    "max_iterations": 50,
+    "max_iterations": 500,
 }
 
 
@@ -105,6 +104,7 @@ class GeothermalFlowModel(FlowModel):
         """After calling the parent method, the global solution is calculated by Schur
         expansion."""
         petsc_solver_q = self.params.get("petsc_solver_q", False)
+
         tb = time.time()
         if petsc_solver_q:
             from petsc4py import PETSc
@@ -134,12 +134,52 @@ class GeothermalFlowModel(FlowModel):
         else:
             sol = super().solve_linear_system()
 
+        x0 = self.equation_system.get_variable_values(iterate_index=0)
+        h_dof_idx = self.equation_system.dofs_of([self.primary_variable_names[2]])
+        t_dof_idx = self.equation_system.dofs_of([self.secondary_variables_names[0]])
+        p_0 = x0[self.equation_system.dofs_of([self.primary_variable_names[0]])]
+        z_0 = x0[self.equation_system.dofs_of([self.primary_variable_names[1]])]
+        h_0 = x0[h_dof_idx]
+        t_0 = x0[t_dof_idx]
+        max_dH = 1000.0
+        t = sol[t_dof_idx] + t_0
+        h = self.bisection_method(p_0, z_0, t)
+        dh = h - h_0
+        new_dh = np.where(np.abs(sol[h_dof_idx]) > max_dH, dh, sol[h_dof_idx])
+        sol[h_dof_idx] = new_dh
+
         reduce_linear_system_q = self.params.get("reduce_linear_system_q", False)
         if reduce_linear_system_q:
             raise ValueError("Case not implemented yet.")
         te = time.time()
         print("Elapsed time linear solve: ", te - tb)
         return sol
+
+
+    def bisection_method(self, z, p, t_target, tol=1e-2, max_iter=50):
+        a = np.zeros_like(t_target)
+        b = 4000.0 * np.ones_like(t_target)
+        f_res = lambda T_val : t_target - self.temperature_function(np.vstack([p, T_val, z]))
+
+        fa_times_fb = f_res(a) * f_res(b)
+        if np.any(np.logical_and(fa_times_fb > 0.0, np.isclose(fa_times_fb, 0.0))) :
+            raise ValueError("The function must have different signs at a and b.")
+
+        for _ in range(max_iter):
+            c = (a + b) / 2.0
+            f_c = f_res(c)
+
+            if np.all(np.logical_or(np.abs(f_c) < tol, np.abs(b - a) < tol)):
+                return c
+
+            f_a = f_res(a)
+            idx_n = np.where(f_a * f_c < 0)
+            idx_p = np.where(f_a * f_c >= 0)
+            b[idx_n] = c[idx_n]
+            a[idx_p] = c[idx_p]
+
+
+        raise RuntimeError("Maximum number of iterations reached without convergence.")
 
 
 if tracer_like_setting_q:

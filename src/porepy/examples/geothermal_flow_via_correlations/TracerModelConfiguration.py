@@ -129,3 +129,7 @@ class TracerFlowModel(
 
     def relative_permeability(self, saturation: pp.ad.Operator) -> pp.ad.Operator:
         return saturation
+
+    def temperature_function(self, primary_state: np.ndarray) -> np.ndarray:
+        T_vals, _ = TracerConstitutiveDescription.temperature_func(*primary_state)
+        return T_vals
