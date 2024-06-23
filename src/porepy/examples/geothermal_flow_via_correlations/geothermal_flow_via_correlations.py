@@ -37,7 +37,7 @@ os.environ["NUMBA_DISABLE_JIT"] = str(0)
 import numpy as np
 import porepy as pp
 
-tracer_like_setting_q = True
+tracer_like_setting_q = False
 if tracer_like_setting_q:
     from TracerModelConfiguration import TracerFlowModel as FlowModel
 else:
@@ -45,8 +45,8 @@ else:
     from DriesnerModelConfiguration import DriesnerBrineFlowModel as FlowModel
 
 day = 86400
-t_scale = 1000.0
-tf = 0.025 * day * t_scale
+t_scale = 0.1
+tf = 2.5 * day * t_scale
 dt = 0.025 * day * t_scale
 t_eps = 10.0
 time_manager = pp.TimeManager(
@@ -70,7 +70,7 @@ params = {
     "reduce_linear_system_q": False,
     "petsc_solver_q": False,
     "nl_convergence_tol": np.inf,
-    "nl_convergence_tol_res": 1.0e-5,
+    "nl_convergence_tol_res": 1.0e-3,
     "max_iterations": 500,
 }
 
@@ -105,6 +105,11 @@ class GeothermalFlowModel(FlowModel):
         expansion."""
         petsc_solver_q = self.params.get("petsc_solver_q", False)
 
+        p_dof_idx = self.equation_system.dofs_of([self.primary_variable_names[0]])
+        z_dof_idx = self.equation_system.dofs_of([self.primary_variable_names[1]])
+        h_dof_idx = self.equation_system.dofs_of([self.primary_variable_names[2]])
+        t_dof_idx = self.equation_system.dofs_of([self.secondary_variables_names[0]])
+
         tb = time.time()
         if petsc_solver_q:
             from petsc4py import PETSc
@@ -132,45 +137,97 @@ class GeothermalFlowModel(FlowModel):
             ksp.solve(b, x)
             sol = x.array
         else:
+            csr_mat, res_g = self.linear_system
             sol = super().solve_linear_system()
-
-        x0 = self.equation_system.get_variable_values(iterate_index=0)
-        h_dof_idx = self.equation_system.dofs_of([self.primary_variable_names[2]])
-        t_dof_idx = self.equation_system.dofs_of([self.secondary_variables_names[0]])
-        p_0 = x0[self.equation_system.dofs_of([self.primary_variable_names[0]])]
-        z_0 = x0[self.equation_system.dofs_of([self.primary_variable_names[1]])]
-        h_0 = x0[h_dof_idx]
-        t_0 = x0[t_dof_idx]
-        max_dH = 1000.0
-        t = sol[t_dof_idx] + t_0
-        h = self.bisection_method(p_0, z_0, t)
-        dh = h - h_0
-        new_dh = np.where(np.abs(sol[h_dof_idx]) > max_dH, dh, sol[h_dof_idx])
-        sol[h_dof_idx] = new_dh
-
         reduce_linear_system_q = self.params.get("reduce_linear_system_q", False)
         if reduce_linear_system_q:
             raise ValueError("Case not implemented yet.")
         te = time.time()
+        print("Residual norm at x_k: ", np.linalg.norm(res_g))
+        print("Pressure residual norm at x_k: ", np.linalg.norm(res_g[p_dof_idx]))
+        print("Composition residual norm at x_k: ", np.linalg.norm(res_g[z_dof_idx]))
+        print("Enthalpy residual at norm x_k: ", np.linalg.norm(res_g[h_dof_idx]))
+        print("Temperature residual at norm x_k: ", np.linalg.norm(res_g[t_dof_idx]))
         print("Elapsed time linear solve: ", te - tb)
+
+        tb = time.time()
+        self.postprocessing_overshoots(sol)
+        te = time.time()
+        print("Elapsed time for bisection enthalpy correction: ", te - tb)
         return sol
 
+    def postprocessing_overshoots(self, delta_x):
+        x0 = self.equation_system.get_variable_values(iterate_index=0)
+        p_dof_idx = self.equation_system.dofs_of([self.primary_variable_names[0]])
+        z_dof_idx = self.equation_system.dofs_of([self.primary_variable_names[1]])
+        h_dof_idx = self.equation_system.dofs_of([self.primary_variable_names[2]])
+        t_dof_idx = self.equation_system.dofs_of([self.secondary_variables_names[0]])
+        p_0 = x0[p_dof_idx]
+        z_0 = x0[z_dof_idx]
+        h_0 = x0[h_dof_idx]
+        t_0 = x0[t_dof_idx]
+        max_dH = 1.0e6
 
-    def bisection_method(self, z, p, t_target, tol=1e-2, max_iter=50):
+        # control overshoots in:
+        # pressure
+        new_p = delta_x[p_dof_idx] + p_0
+        new_p = np.where(new_p < 0.0, 1.0, new_p)
+        new_p = np.where(new_p > 100.0e6, 100.0e6, new_p)
+        delta_x[p_dof_idx] = new_p - p_0
+
+        # composition
+        new_z = delta_x[z_dof_idx] + z_0
+        new_z = np.where(new_z < 1.0e-3, 1.0e-3, new_z)
+        new_z = np.where(new_z > 0.3, 0.3, new_z)
+        delta_x[z_dof_idx] = new_z - z_0
+
+        # enthalpy
+        new_h = delta_x[h_dof_idx] + h_0
+        new_h = np.where(new_h < 100.0, 100.0, new_h)
+        new_h = np.where(new_h > 4.0e6, 4.0e6, new_h)
+        delta_x[h_dof_idx] = new_h - h_0
+
+        # temperature
+        new_t = delta_x[t_dof_idx] + t_0
+        new_t = np.where(new_t < 1.0, 1.0, new_t)
+        new_t = np.where(new_t > 1200.0, 1200.0, new_t)
+        delta_x[t_dof_idx] = new_t - t_0
+
+        # if np.where(np.abs(delta_x[h_dof_idx]) > max_dH)[0].shape[0] > 0:
+        #     print('PostprocessingOvershoots:: Apply bisection correction.')
+        #     t = delta_x[t_dof_idx] + t_0
+        #     h, idx = self.bisection_method(p_0, z_0, t)
+        #     dh = h - h_0[idx]
+        #     new_dh = np.where(np.abs(delta_x[h_dof_idx][idx]) > max_dH, dh, delta_x[h_dof_idx][idx])
+        #     delta_x[h_dof_idx][idx] = new_dh
+
+        return
+
+    def bisection_method(self, p, z, t_target, tol=1e-3, max_iter=50):
         a = np.zeros_like(t_target)
-        b = 4000.0 * np.ones_like(t_target)
-        f_res = lambda T_val : t_target - self.temperature_function(np.vstack([p, T_val, z]))
+        b = 4.0e6 * np.ones_like(t_target)
+        f_res = lambda H_val : t_target - self.temperature_function(np.vstack([p, H_val, z]))
 
         fa_times_fb = f_res(a) * f_res(b)
-        if np.any(np.logical_and(fa_times_fb > 0.0, np.isclose(fa_times_fb, 0.0))) :
-            raise ValueError("The function must have different signs at a and b.")
+        idx = np.where(fa_times_fb < 0.0)[0]
+        if idx.shape[0] == 0:
+            return np.empty_like(a), idx
+        else:
 
-        for _ in range(max_iter):
+            if np.any(np.logical_and(fa_times_fb > 0.0, np.isclose(fa_times_fb, 0.0))):
+                print("Bisection:: some cells are ignored.")
+
+            f_res = lambda H_val: t_target[idx] - self.temperature_function(
+                np.vstack([p[idx], H_val, z[idx]]))
+            a = a[idx]
+            b = b[idx]
+
+        for it in range(max_iter):
             c = (a + b) / 2.0
             f_c = f_res(c)
 
             if np.all(np.logical_or(np.abs(f_c) < tol, np.abs(b - a) < tol)):
-                return c
+                return c, idx
 
             f_a = f_res(a)
             idx_n = np.where(f_a * f_c < 0)
@@ -186,25 +243,28 @@ if tracer_like_setting_q:
     model = GeothermalFlowModel(params)
 else:
     model = GeothermalFlowModel(params)
-    file_name = "binary_files/PHX_l2_with_gradients.vtk"
+    file_name = "binary_files/XHP_l0_modified.vtk"
     brine_obl = DriesnerBrineOBL(file_name)
+    brine_obl.fields_constant_extension = ['S_l','S_v', 'Xl', 'Xv']
     brine_obl.conversion_factors = (1.0, 1.0e-3, 1.0e-5)  # (z,h,p)
     model.obl = brine_obl
 
     if False:
-        h = np.arange(1.5e6, 3.2e6, 0.025e6)
-        p = 20.0e6 * np.ones_like(h)
+        # h = np.arange(1.5e3, 4.0e6, 0.025e6)
+        # p = 20.0e6 * np.ones_like(h)
+        # z_NaCl = (0.01 + 1.0e-5) * np.ones_like(h)
 
-        # p = np.arange(1.0e6, 20.0e6, 0.5e6)
-        # h = 3.2e6 * np.ones_like(p)
+        z_NaCl = np.arange(-0.5, 0.5, 0.01)
+        h = 1.5e6 * np.ones_like(z_NaCl)
+        p = 20.0e6 * np.ones_like(z_NaCl)
 
-        z_NaCl = (0.001 + 1.0e-5) * np.ones_like(h)
+
         par_points = np.array((z_NaCl, h, p)).T
         brine_obl.sample_at(par_points)
 
         T = brine_obl.sampled_could.point_data["Temperature"]
         plt.plot(
-            h,
+            z_NaCl,
             T,
             label="T(H)",
             color="blue",
@@ -216,23 +276,27 @@ else:
 
         s_l = brine_obl.sampled_could.point_data["S_l"]
         s_v = brine_obl.sampled_could.point_data["S_v"]
-        # plt.plot(h, s_l, label='Liquid', color='blue', linestyle='-', marker='o',
-        #          markerfacecolor='blue', markersize=5)
-        # plt.plot(h, s_v, label='Vapor', color='red', linestyle='-', marker='o',
-        #          markerfacecolor='red', markersize=5)
+        plt.plot(z_NaCl, s_l, label='Liquid', color='blue', linestyle='-', marker='o',
+                 markerfacecolor='blue', markersize=5)
+        plt.plot(z_NaCl, s_v, label='Vapor', color='red', linestyle='-', marker='o',
+                 markerfacecolor='red', markersize=5)
 
         h_l = brine_obl.sampled_could.point_data["H_l"]
         h_v = brine_obl.sampled_could.point_data["H_v"]
-        # plt.plot(p, h_l, label='Liquid', color='blue', linestyle='-', marker='o',
-        #          markerfacecolor='blue', markersize=5)
-        # plt.plot(p, h_v, label='Vapor', color='red', linestyle='-', marker='o',
-        #          markerfacecolor='red', markersize=5)
+        plt.plot(z_NaCl, h_l, label='Liquid', color='blue', linestyle='-', marker='o',
+                 markerfacecolor='blue', markersize=5)
+        plt.plot(z_NaCl, h_v, label='Vapor', color='red', linestyle='-', marker='o',
+                 markerfacecolor='red', markersize=5)
 
-        # dTdh = 1/brine_obl.sampled_could.point_data['grad_Temperature'][:,1]
-        # plt.plot(h, dTdh, label='dTdh(H)', color='red', linestyle='-', marker='o',
-        #          markerfacecolor='red', markersize=5)
+        X_l = brine_obl.sampled_could.point_data["Xl"]
+        X_v = brine_obl.sampled_could.point_data["Xv"]
+        plt.plot(z_NaCl, X_l, label='Liquid', color='blue', linestyle='-', marker='o',
+                 markerfacecolor='blue', markersize=5)
+        plt.plot(z_NaCl, X_v, label='Vapor', color='red', linestyle='-', marker='o',
+                 markerfacecolor='red', markersize=5)
         plt.legend()
         plt.show()
+
         aka = 0
 
 

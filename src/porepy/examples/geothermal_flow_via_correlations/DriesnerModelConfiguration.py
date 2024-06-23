@@ -17,22 +17,23 @@ class BoundaryConditions(BoundaryConditionsCF):
 
     def bc_type_fourier_flux(self, sd: pp.Grid) -> pp.BoundaryCondition:
         facet_idx = np.concatenate(self.get_inlet_outlet_sides(sd))
+        sides = self.domain_boundary_sides(sd)
+        facet_idx = sides.north + sides.south
         return pp.BoundaryCondition(sd, facet_idx, "dir")
 
     def bc_type_darcy_flux(self, sd: pp.Grid) -> pp.BoundaryCondition:
         facet_idx = np.concatenate(self.get_inlet_outlet_sides(sd))
-        return pp.BoundaryCondition(sd, facet_idx, "dir")
-
-    def bc_type_advective_flux(self, sd: pp.Grid) -> pp.BoundaryCondition:
-        facet_idx = np.concatenate(self.get_inlet_outlet_sides(sd))
+        sides = self.domain_boundary_sides(sd)
+        facet_idx = sides.east + sides.west
         return pp.BoundaryCondition(sd, facet_idx, "dir")
 
     def bc_values_pressure(self, boundary_grid: pp.BoundaryGrid) -> np.ndarray:
         inlet_idx, outlet_idx = self.get_inlet_outlet_sides(boundary_grid)
+
         p_inlet = 20.0e6
-        p_outlet = 15.0e6
+        p_outlet = 18.0e6
         xc = boundary_grid.cell_centers.T
-        l = 2.0
+        l = 10.0
 
         def p_linear(xv):
             p_v = p_inlet * (1 - xv[0] / l) + p_outlet * (xv[0] / l)
@@ -46,10 +47,10 @@ class BoundaryConditions(BoundaryConditionsCF):
 
     def bc_values_enthalpy(self, boundary_grid: pp.BoundaryGrid) -> np.ndarray:
         inlet_idx, _ = self.get_inlet_outlet_sides(boundary_grid)
-        h_inlet = 1.5e6
-        h_outlet = 2.2e6
+        h_inlet = 2.8e6
+        h_outlet = 1.5e6
         xc = boundary_grid.cell_centers.T
-        l = 2.0
+        l = 10.0
 
         def h_linear(xv):
             h_v = h_inlet * (1 - xv[0] / l) + h_outlet * (xv[0] / l)
@@ -63,8 +64,8 @@ class BoundaryConditions(BoundaryConditionsCF):
         self, component: ppc.Component, boundary_grid: pp.BoundaryGrid
     ) -> np.ndarray:
         inlet_idx, _ = self.get_inlet_outlet_sides(boundary_grid)
-        z_init = 0.2
-        z_inlet = 0.02
+        z_init = 0.05
+        z_inlet = 0.05
         if component.name == "H2O":
             z_H2O = (1 - z_init) * np.ones(boundary_grid.num_cells)
             z_H2O[inlet_idx] = 1 - z_inlet
@@ -74,21 +75,25 @@ class BoundaryConditions(BoundaryConditionsCF):
             z_NaCl[inlet_idx] = z_inlet
             return z_NaCl
 
-    # def bc_values_temperature(self, boundary_grid: pp.BoundaryGrid) -> np.ndarray:
-    #     h = self.bc_values_enthalpy(boundary_grid)
-    #     factor = 630.0 / 2.0e6
-    #     T = factor * h
-    #     return T
+    def bc_values_temperature(self, boundary_grid: pp.BoundaryGrid) -> np.ndarray:
+        inlet_idx, outlet_idx = self.get_inlet_outlet_sides(boundary_grid)
+        sides = self.domain_boundary_sides(boundary_grid)
+        t_inlet = 600
+        t_outlet = 600
 
+        t = t_outlet * np.ones(boundary_grid.num_cells)
+        t[sides.south] = t_inlet
+        t[sides.north] = t_outlet
+        return t
 
 class InitialConditions(InitialConditionsCF):
     """See parent class how to set up BC. Default is all zero and Dirichlet."""
 
     def initial_pressure(self, sd: pp.Grid) -> np.ndarray:
-        p_inlet = 15.0e6
-        p_outlet = 15.0e6
+        p_inlet = 18.0e6
+        p_outlet = 18.0e6
         xc = sd.cell_centers.T
-        l = 2.0
+        l = 10.0
 
         def p_linear(xv):
             p_v = p_inlet * (1 - xv[0] / l) + p_outlet * (xv[0] / l)
@@ -98,10 +103,10 @@ class InitialConditions(InitialConditionsCF):
         return p
 
     def initial_enthalpy(self, sd: pp.Grid) -> np.ndarray:
-        h_inlet = 2.2e6
-        h_outlet = 2.2e6
+        h_inlet = 1.5e6
+        h_outlet = 1.5e6
         xc = sd.cell_centers.T
-        l = 2.0
+        l = 10.0
 
         def h_linear(xv):
             h_v = h_inlet * (1 - xv[0] / l) + h_outlet * (xv[0] / l)
@@ -113,17 +118,11 @@ class InitialConditions(InitialConditionsCF):
     def initial_overall_fraction(
         self, component: ppc.Component, sd: pp.Grid
     ) -> np.ndarray:
-        z = 0.2
+        z = 0.05
         if component.name == "H2O":
             return (1 - z) * np.ones(sd.num_cells)
         else:
             return z * np.ones(sd.num_cells)
-
-    # def initial_temperature(self, sd: pp.Grid) -> np.ndarray:
-    #     h = self.initial_enthalpy(sd)
-    #     factor = 630.0 / 2.0e6
-    #     T = factor * h
-    #     return T
 
 
 class SecondaryEquations(BrineConstitutiveDescription.SecondaryEquations):
@@ -162,6 +161,10 @@ class DriesnerBrineFlowModel(
 ):
     def relative_permeability(self, saturation: pp.ad.Operator) -> pp.ad.Operator:
         return saturation
+
+    def temperature_function(self, primary_state: np.ndarray) -> np.ndarray:
+        T_vals, _ = self.temperature_func(*primary_state)
+        return T_vals
 
     @property
     def obl(self):

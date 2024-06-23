@@ -165,10 +165,10 @@ class SimpleGeometry(Geometry):
         self._domain = pp.Domain(box)
 
     def grid_type(self) -> str:
-        return self.params.get("grid_type", "simplex")
+        return self.params.get("grid_type", "cartesian")
 
     def meshing_arguments(self) -> dict:
-        cell_size = self.solid.convert_units(0.1, "m")
+        cell_size = self.solid.convert_units(1/3.0, "m")
         mesh_args: dict[str, float] = {"cell_size": cell_size}
         return mesh_args
 

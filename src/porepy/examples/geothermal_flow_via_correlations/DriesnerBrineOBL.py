@@ -53,6 +53,17 @@ class DriesnerBrineOBL:
             self._sampled_could.clear_data()
         self._sampled_could = sampled_could.copy()
 
+    @property
+    def fields_constant_extension(self):
+        if hasattr(self, "_fields_constant_extension"):
+            return self._fields_constant_extension
+        else:
+            return []
+
+    @fields_constant_extension.setter
+    def fields_constant_extension(self, fields_constant_extension):
+        self._fields_constant_extension = fields_constant_extension
+
     def sample_at(self, points):
         # tb = time.time()
         points = self._apply_conversion_factor(points)
@@ -97,7 +108,7 @@ class DriesnerBrineOBL:
         xmin, xmax, ymin, ymax, zmin, zmax = bounds
 
         # ensure that vtk sampling for zero order expansion is performed internally
-        eps = 1.0e-10
+        eps = 1.0e-1
         xmin += eps
         ymin += eps
         zmin += eps
@@ -233,6 +244,11 @@ class DriesnerBrineOBL:
 
                 # taylor expansion all at once
                 f_extrapolated = fv + np.sum(grad_fv * (x - xv), axis=1)
+
+                # constant extensions
+                if field_name in self.fields_constant_extension:
+                    f_extrapolated = fv
+                    grad_fv *= 0.0
 
                 # update fields
                 self.sampled_could[field_name][glob_idx] = f_extrapolated
