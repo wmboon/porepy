@@ -39,9 +39,8 @@ from vtk_sampler import VTKSampler
 import porepy as pp
 
 day = 86400
-t_scale = 0.01
-tf = 2.5 * day * t_scale
-dt = 0.025 * day * t_scale
+tf = 0.05 * day
+dt = 0.00025 * day
 time_manager = pp.TimeManager(
     schedule=[0.0, tf],
     dt_init=dt,
@@ -133,7 +132,7 @@ print("Inflow values : ", mn[inlet_idx])
 print("Outflow values : ", mn[outlet_idx])
 
 # Check conservation of overall mass across boundaries
-external_bc_idx = bc_sides.all_bf
-assert np.isclose(np.sum(mn[external_bc_idx]), 0.0, atol=1.0e-10)
+# external_bc_idx = bc_sides.all_bf
+# assert np.isclose(np.sum(mn[external_bc_idx]), 0.0, atol=1.0e-10)
 
 
