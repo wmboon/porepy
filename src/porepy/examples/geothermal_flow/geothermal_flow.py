@@ -39,15 +39,30 @@ from vtk_sampler import VTKSampler
 import porepy as pp
 
 day = 86400
-tf = 0.05 * day
-dt = 0.00025 * day
-time_manager = pp.TimeManager(
-    schedule=[0.0, tf],
-    dt_init=dt,
-    constant_dt=True,
-    iter_max=50,
-    print_info=True,
-)
+tf = 10.0 * day
+dt = 1.0 * day
+dynamic_time_step_q = False
+
+if dynamic_time_step_q:
+    time_manager = pp.TimeManager(
+        schedule=[0.0, tf],
+        dt_init=dt,
+        constant_dt=False,
+        dt_min_max = (dt, 0.1 * day),
+        iter_optimal_range = (5, 10),
+        iter_relax_factors = (0.5,1.5),
+        recomp_factor = 0.25,
+        iter_max=50,
+        print_info=True,
+    )
+else:
+    time_manager = pp.TimeManager(
+        schedule=[0.0, tf],
+        dt_init=dt,
+        constant_dt=True,
+        iter_max=50,
+        print_info=True,
+    )
 
 solid_constants = pp.SolidConstants(
     {
@@ -69,6 +84,7 @@ params = {
     "nl_convergence_tol": np.inf,
     "nl_convergence_tol_res": 1.0e-3,
     "max_iterations": 50,
+    "petsc_solver_q": False,
 }
 
 
@@ -90,6 +106,199 @@ class GeothermalFlowModel(FlowModel):
     def after_simulation(self):
         self.exporter.write_pvd()
 
+    def solve_linear_system(self) -> np.ndarray:
+        """After calling the parent method, the global solution is calculated by Schur
+        expansion."""
+        petsc_solver_q = self.params.get("petsc_solver_q", False)
+
+        p_dof_idx = self.equation_system.dofs_of(['pressure'])
+        z_dof_idx = self.equation_system.dofs_of(['z_NaCl'])
+        h_dof_idx = self.equation_system.dofs_of(['enthalpy'])
+        t_dof_idx = self.equation_system.dofs_of(['temperature'])
+
+        tb = time.time()
+        if petsc_solver_q:
+            from petsc4py import PETSc
+            from sklearn.utils import sparsefuncs
+
+            # scale down the equations
+            # Pressure residuals in [Kilo Tone / s]: P in [MPa]
+            # Compositional residuals in [Kilo Tone / s]: z in [-]
+            # Energy residuals in [Kilo Watt / s]: h in [KJ / Kg]
+
+            ad_jac, ad_res = self.linear_system
+
+            # https://scikit-learn.org/stable/index.html
+            # this package has several sparse arrays operations
+            # inplace_csr_row_scale
+            # scaled down the system
+            to_KTone = 1.0e-6
+            to_KWatts = 1.0e-3
+            n_dofs = self.equation_system.num_dofs()
+            scale = np.ones(n_dofs)
+            # scale[p_dof_idx] *= to_KTone
+            # scale[z_dof_idx] *= to_KTone
+            # scale[h_dof_idx] *= to_KWatts
+
+            jac_g = ad_jac.copy()
+            res_g = ad_res.copy()
+            sparsefuncs.inplace_row_scale(jac_g, scale)
+            res_g = scale * res_g
+
+            PETSc_jac_g = PETSc.Mat().createAIJ(
+                size=jac_g.shape,
+                csr=((jac_g.indptr, jac_g.indices, jac_g.data)),
+            )
+
+            # solving ls
+            st = time.time()
+            ksp = PETSc.KSP().create()
+            ksp.setOperators(PETSc_jac_g)
+            b = PETSc_jac_g.createVecLeft()
+            b.array[:] = res_g
+            x = PETSc_jac_g.createVecRight()
+
+            ksp.setType("preonly")
+            ksp.getPC().setType("lu")
+            ksp.getPC().setFactorSolverType("mumps")
+
+            ksp.setConvergenceHistory()
+            ksp.solve(b, x)
+            sol = x.array
+            # sol = sol * (1.0 / scale)
+        else:
+            csr_mat, res_g = self.linear_system
+            sol = super().solve_linear_system()
+        reduce_linear_system_q = self.params.get("reduce_linear_system_q", False)
+        if reduce_linear_system_q:
+            raise ValueError("Case not implemented yet.")
+        te = time.time()
+        print("Residual norm at x_k: ", np.linalg.norm(res_g))
+        print("Pressure residual norm at x_k: ", np.linalg.norm(res_g[p_dof_idx]))
+        print("Composition residual norm at x_k: ", np.linalg.norm(res_g[z_dof_idx]))
+        print("Enthalpy residual at norm x_k: ", np.linalg.norm(res_g[h_dof_idx]))
+        print("Temperature residual at norm x_k: ", np.linalg.norm(res_g[t_dof_idx]))
+        print("Elapsed time linear solve: ", te - tb)
+
+        tb = time.time()
+        self.postprocessing_overshoots(sol)
+        te = time.time()
+        print("Elapsed time for postprocessing overshoots: ", te - tb)
+        # tb = time.time()
+        # self.postprocessing_enthalpy_overshoots(sol)
+        # te = time.time()
+        # print("Elapsed time for bisection enthalpy correction: ", te - tb)
+        return sol
+
+    def postprocessing_overshoots(self, delta_x):
+        x0 = self.equation_system.get_variable_values(iterate_index=0)
+
+        p_dof_idx = self.equation_system.dofs_of(['pressure'])
+        z_dof_idx = self.equation_system.dofs_of(['z_NaCl'])
+        h_dof_idx = self.equation_system.dofs_of(['enthalpy'])
+        t_dof_idx = self.equation_system.dofs_of(['temperature'])
+        s_dof_idx = self.equation_system.dofs_of(['s_gas'])
+        xw_v_dof_idx = self.equation_system.dofs_of(['x_H2O_gas'])
+        xw_l_dof_idx = self.equation_system.dofs_of(['x_H2O_liq'])
+        xs_v_dof_idx = self.equation_system.dofs_of(['x_NaCl_gas'])
+        xs_l_dof_idx = self.equation_system.dofs_of(['x_NaCl_liq'])
+
+        p_0 = x0[p_dof_idx]
+        z_0 = x0[z_dof_idx]
+        h_0 = x0[h_dof_idx]
+        t_0 = x0[t_dof_idx]
+
+        # control overshoots in:
+        # pressure
+        new_p = delta_x[p_dof_idx] + p_0
+        new_p = np.where(new_p < 0.0, 0.0, new_p)
+        new_p = np.where(new_p > 100.0, 100.0, new_p)
+        delta_x[p_dof_idx] = new_p - p_0
+
+        # composition
+        new_z = delta_x[z_dof_idx] + z_0
+        new_z = np.where(new_z < 0.0, 0.0, new_z)
+        new_z = np.where(new_z > 0.3, 0.3, new_z)
+        delta_x[z_dof_idx] = new_z - z_0
+
+        # enthalpy
+        new_h = delta_x[h_dof_idx] + h_0
+        new_h = np.where(new_h < 0.0, 0.0, new_h)
+        new_h = np.where(new_h > 4.0, 4.0, new_h)
+        delta_x[h_dof_idx] = new_h - h_0
+
+        # temperature
+        new_t = delta_x[t_dof_idx] + t_0
+        new_t = np.where(new_t < 0.0, 0.0, new_t)
+        new_t = np.where(new_t > 1200.0, 1200.0, new_t)
+        delta_x[t_dof_idx] = new_t - t_0
+
+        # secondary fractions
+        for dof_idx in [s_dof_idx, xw_v_dof_idx, xw_l_dof_idx, xs_v_dof_idx, xs_l_dof_idx]:
+        # for dof_idx in [s_dof_idx]:
+            new_q = delta_x[dof_idx] + x0[dof_idx]
+            new_q = np.where(new_q < 0.0, 0.0, new_q)
+            new_q = np.where(new_q > 1.0, 1.0, new_q)
+            delta_x[dof_idx] = new_q - x0[dof_idx]
+
+        return
+
+    def postprocessing_enthalpy_overshoots(self, delta_x):
+        x0 = self.equation_system.get_variable_values(iterate_index=0)
+        p_dof_idx = self.equation_system.dofs_of([self.primary_variable_names[0]])
+        z_dof_idx = self.equation_system.dofs_of([self.primary_variable_names[1]])
+        h_dof_idx = self.equation_system.dofs_of([self.primary_variable_names[2]])
+        t_dof_idx = self.equation_system.dofs_of(['temperature'])
+        p_0 = x0[p_dof_idx]
+        z_0 = x0[z_dof_idx]
+        h_0 = x0[h_dof_idx]
+        t_0 = x0[t_dof_idx]
+        max_dH = 0.5
+
+        if np.where(np.abs(delta_x[h_dof_idx]) > max_dH)[0].shape[0] > 0:
+            print('PostprocessingOvershoots:: Apply bisection correction.')
+            t = delta_x[t_dof_idx] + t_0
+            h, idx = self.bisection_method(p_0, z_0, t)
+            dh = h - h_0[idx]
+            new_dh = np.where(np.abs(delta_x[h_dof_idx][idx]) > max_dH, dh, delta_x[h_dof_idx][idx])
+            delta_x[h_dof_idx][idx] = new_dh
+
+        return
+
+    def bisection_method(self, p, z, t_target, tol=1e-2, max_iter=100):
+        a = np.zeros_like(t_target)
+        b = 4.0 * np.ones_like(t_target)
+        f_res = lambda H_val: t_target - self.temperature_function(
+            np.vstack([p, H_val, z]))
+
+        fa_times_fb = f_res(a) * f_res(b)
+        idx = np.where(fa_times_fb < 0.0)[0]
+        if idx.shape[0] == 0:
+            return np.empty_like(a), idx
+        else:
+            if np.any(np.logical_and(fa_times_fb > 0.0, np.isclose(fa_times_fb, 0.0))):
+                print("Bisection:: some cells are ignored.")
+
+            f_res = lambda H_val: t_target[idx] - self.temperature_function(
+                np.vstack([p[idx], H_val, z[idx]]))
+            a = a[idx]
+            b = b[idx]
+
+        for it in range(max_iter):
+            c = (a + b) / 2.0
+            f_c = f_res(c)
+
+            if np.all(np.logical_or(np.abs(f_c) < tol, np.abs(b - a) < tol)):
+                return c, idx
+
+            f_a = f_res(a)
+            idx_n = np.where(f_a * f_c < 0)
+            idx_p = np.where(f_a * f_c >= 0)
+            b[idx_n] = c[idx_n]
+            a[idx_p] = c[idx_p]
+
+        raise RuntimeError("Maximum number of iterations reached without convergence.")
+
 
 # Instance of the computational model
 model = GeothermalFlowModel(params)
@@ -100,7 +309,7 @@ file_name = (
     file_name_prefix + "XHP_l" + str(parametric_space_ref_level) + "_modified.vtk"
 )
 brine_sampler = VTKSampler(file_name)
-brine_sampler.conversion_factors = (1.0, 1.0e-3, 1.0e-5)  # (z,h,p)
+brine_sampler.conversion_factors = (1.0, 1.0e3, 10.0)  # (z,h,p)
 model.vtk_sampler = brine_sampler
 
 

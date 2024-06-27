@@ -13,7 +13,7 @@ from .constitutive_description.BrineConstitutiveDescription import (
     FluidMixture,
     SecondaryEquations,
 )
-from .geometry_description.geometry_market import SimpleGeometry as ModelGeometry
+from .geometry_description.geometry_market import Benchmark3DC3 as ModelGeometry
 
 
 class BoundaryConditions(BoundaryConditionsCF):
@@ -21,6 +21,8 @@ class BoundaryConditions(BoundaryConditionsCF):
 
     def bc_type_fourier_flux(self, sd: pp.Grid) -> pp.BoundaryCondition:
         facet_idx = np.concatenate(self.get_inlet_outlet_sides(sd))
+        sides = self.domain_boundary_sides(sd)
+        facet_idx = sides.all_bf
         return pp.BoundaryCondition(sd, facet_idx, "dir")
 
     def bc_type_darcy_flux(self, sd: pp.Grid) -> pp.BoundaryCondition:
@@ -33,8 +35,8 @@ class BoundaryConditions(BoundaryConditionsCF):
 
     def bc_values_pressure(self, boundary_grid: pp.BoundaryGrid) -> np.ndarray:
         inlet_idx, outlet_idx = self.get_inlet_outlet_sides(boundary_grid)
-        p_inlet = 20.0e6
-        p_outlet = 15.0e6
+        p_inlet = 20.0
+        p_outlet = 15.0
         p = p_outlet * np.ones(boundary_grid.num_cells)
         p[inlet_idx] = p_inlet
         p[outlet_idx] = p_outlet
@@ -42,8 +44,8 @@ class BoundaryConditions(BoundaryConditionsCF):
 
     def bc_values_enthalpy(self, boundary_grid: pp.BoundaryGrid) -> np.ndarray:
         inlet_idx, _ = self.get_inlet_outlet_sides(boundary_grid)
-        h_inlet = 2.2e6
-        h_outlet = 1.5e6
+        h_inlet = 2.0
+        h_outlet = 1.5
         h = h_outlet * np.ones(boundary_grid.num_cells)
         h[inlet_idx] = h_inlet
         return h
@@ -65,8 +67,8 @@ class BoundaryConditions(BoundaryConditionsCF):
 
     def bc_values_temperature(self, boundary_grid: pp.BoundaryGrid) -> np.ndarray:
         inlet_idx, outlet_idx = self.get_inlet_outlet_sides(boundary_grid)
-        t_inlet = 400.0
-        t_outlet = 400.0
+        t_inlet = 620.0
+        t_outlet = 620.0
         T = t_outlet * np.ones(boundary_grid.num_cells)
         T[inlet_idx] = t_inlet
         T[outlet_idx] = t_outlet
@@ -77,11 +79,11 @@ class InitialConditions(InitialConditionsCF):
     """See parent class how to set up BC. Default is all zero and Dirichlet."""
 
     def initial_pressure(self, sd: pp.Grid) -> np.ndarray:
-        p_init = 15.0e6
+        p_init = 15.0
         return np.ones(sd.num_cells) * p_init
 
     def initial_enthalpy(self, sd: pp.Grid) -> np.ndarray:
-        h_init = 1.5e6
+        h_init = 1.5
         return np.ones(sd.num_cells) * h_init
 
     def initial_overall_fraction(
@@ -126,6 +128,10 @@ class DriesnerBrineFlowModel(
 ):
     def relative_permeability(self, saturation: pp.ad.Operator) -> pp.ad.Operator:
         return saturation
+
+    def temperature_function(self, triplet) -> pp.ad.Operator:
+        T_vals, _ = self.temperature_func(*triplet)
+        return T_vals
 
     @property
     def vtk_sampler(self):
