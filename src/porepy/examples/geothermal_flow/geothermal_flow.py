@@ -168,6 +168,13 @@ class GeothermalFlowModel(FlowModel):
     def postprocessing_overshoots(self, delta_x):
 
         zmin, zmax, hmin, hmax, pmin, pmax = self.vtk_sampler.search_space.bounds
+        z_scale, h_scale, p_scale = self.vtk_sampler.conversion_factors
+        zmin /= z_scale
+        zmax /= z_scale
+        hmin /= h_scale
+        hmax /= h_scale
+        pmin /= p_scale
+        pmax /= p_scale
 
         tb = time.time()
         x0 = self.equation_system.get_variable_values(iterate_index=0)
@@ -189,19 +196,19 @@ class GeothermalFlowModel(FlowModel):
         # control overshoots in:
         # pressure
         new_p = delta_x[p_dof_idx] + p_0
-        new_p = np.where(new_p < pmin, pmin, new_p)
+        new_p = np.where(new_p < 0.0, 0.0, new_p)
         new_p = np.where(new_p > pmax, pmax, new_p)
         delta_x[p_dof_idx] = new_p - p_0
 
         # composition
         new_z = delta_x[z_dof_idx] + z_0
-        new_z = np.where(new_z < zmin, zmin, new_z)
+        new_z = np.where(new_z < 0.0, 0.0, new_z)
         new_z = np.where(new_z > zmax, zmax, new_z)
         delta_x[z_dof_idx] = new_z - z_0
 
         # enthalpy
         new_h = delta_x[h_dof_idx] + h_0
-        new_h = np.where(new_h < hmin, hmin, new_h)
+        new_h = np.where(new_h < 0.0, 0.0, new_h)
         new_h = np.where(new_h > hmax, hmax, new_h)
         delta_x[h_dof_idx] = new_h - h_0
 
