@@ -13,8 +13,7 @@ from .constitutive_description.BrineConstitutiveDescription import (
     FluidMixture,
     SecondaryEquations,
 )
-from .geometry_description.geometry_market import Benchmark3DC3 as ModelGeometry
-
+from .geometry_description.geometry_market import Benchmark2DC3 as ModelGeometry
 
 class BoundaryConditions(BoundaryConditionsCF):
     """See parent class how to set up BC. Default is all zero and Dirichlet."""
@@ -31,6 +30,8 @@ class BoundaryConditions(BoundaryConditionsCF):
 
     def bc_type_advective_flux(self, sd: pp.Grid) -> pp.BoundaryCondition:
         facet_idx = np.concatenate(self.get_inlet_outlet_sides(sd))
+        sides = self.domain_boundary_sides(sd)
+        facet_idx = sides.all_bf
         return pp.BoundaryCondition(sd, facet_idx, "dir")
 
     def bc_values_pressure(self, boundary_grid: pp.BoundaryGrid) -> np.ndarray:
@@ -127,7 +128,7 @@ class DriesnerBrineFlowModel(
     CFModelMixin,
 ):
     def relative_permeability(self, saturation: pp.ad.Operator) -> pp.ad.Operator:
-        return saturation
+        return saturation**2
 
     def temperature_function(self, triplet) -> pp.ad.Operator:
         T_vals, _ = self.temperature_func(*triplet)

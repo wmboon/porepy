@@ -39,8 +39,8 @@ from vtk_sampler import VTKSampler
 import porepy as pp
 
 day = 86400
-tf = 10.0 * day
-dt = 1.0 * day
+tf = 0.01 * day
+dt = 0.0001 * day
 dynamic_time_step_q = False
 
 if dynamic_time_step_q:
@@ -82,9 +82,9 @@ params = {
     "prepare_simulation": False,
     "reduce_linear_system_q": False,
     "nl_convergence_tol": np.inf,
-    "nl_convergence_tol_res": 1.0e-3,
+    "nl_convergence_tol_res": 1.0e-2,
     "max_iterations": 50,
-    "petsc_solver_q": False,
+    "petsc_solver_q": True,
 }
 
 
@@ -119,31 +119,13 @@ class GeothermalFlowModel(FlowModel):
         tb = time.time()
         if petsc_solver_q:
             from petsc4py import PETSc
-            from sklearn.utils import sparsefuncs
+            # from sklearn.utils import sparsefuncs
 
             # scale down the equations
             # Pressure residuals in [Kilo Tone / s]: P in [MPa]
             # Compositional residuals in [Kilo Tone / s]: z in [-]
             # Energy residuals in [Kilo Watt / s]: h in [KJ / Kg]
-
-            ad_jac, ad_res = self.linear_system
-
-            # https://scikit-learn.org/stable/index.html
-            # this package has several sparse arrays operations
-            # inplace_csr_row_scale
-            # scaled down the system
-            to_KTone = 1.0e-6
-            to_KWatts = 1.0e-3
-            n_dofs = self.equation_system.num_dofs()
-            scale = np.ones(n_dofs)
-            # scale[p_dof_idx] *= to_KTone
-            # scale[z_dof_idx] *= to_KTone
-            # scale[h_dof_idx] *= to_KWatts
-
-            jac_g = ad_jac.copy()
-            res_g = ad_res.copy()
-            sparsefuncs.inplace_row_scale(jac_g, scale)
-            res_g = scale * res_g
+            jac_g, res_g = self.linear_system
 
             PETSc_jac_g = PETSc.Mat().createAIJ(
                 size=jac_g.shape,
@@ -165,7 +147,6 @@ class GeothermalFlowModel(FlowModel):
             ksp.setConvergenceHistory()
             ksp.solve(b, x)
             sol = x.array
-            # sol = sol * (1.0 / scale)
         else:
             csr_mat, res_g = self.linear_system
             sol = super().solve_linear_system()
@@ -173,26 +154,23 @@ class GeothermalFlowModel(FlowModel):
         if reduce_linear_system_q:
             raise ValueError("Case not implemented yet.")
         te = time.time()
-        print("Residual norm at x_k: ", np.linalg.norm(res_g))
-        print("Pressure residual norm at x_k: ", np.linalg.norm(res_g[p_dof_idx]))
-        print("Composition residual norm at x_k: ", np.linalg.norm(res_g[z_dof_idx]))
-        print("Enthalpy residual at norm x_k: ", np.linalg.norm(res_g[h_dof_idx]))
-        print("Temperature residual at norm x_k: ", np.linalg.norm(res_g[t_dof_idx]))
+        print("Overall residual norm at x_k: ", np.linalg.norm(res_g))
+        print("Pressure residual norm: ", np.linalg.norm(res_g[p_dof_idx]))
+        print("Composition residual norm: ", np.linalg.norm(res_g[z_dof_idx]))
+        print("Enthalpy residual norm: ", np.linalg.norm(res_g[h_dof_idx]))
+        print("Temperature residual norm: ", np.linalg.norm(res_g[t_dof_idx]))
         print("Elapsed time linear solve: ", te - tb)
 
-        tb = time.time()
         self.postprocessing_overshoots(sol)
-        te = time.time()
-        print("Elapsed time for postprocessing overshoots: ", te - tb)
-        # tb = time.time()
-        # self.postprocessing_enthalpy_overshoots(sol)
-        # te = time.time()
-        # print("Elapsed time for bisection enthalpy correction: ", te - tb)
+        self.postprocessing_enthalpy_overshoots(sol)
         return sol
 
     def postprocessing_overshoots(self, delta_x):
-        x0 = self.equation_system.get_variable_values(iterate_index=0)
 
+        zmin, zmax, hmin, hmax, pmin, pmax = self.vtk_sampler.search_space.bounds
+
+        tb = time.time()
+        x0 = self.equation_system.get_variable_values(iterate_index=0)
         p_dof_idx = self.equation_system.dofs_of(['pressure'])
         z_dof_idx = self.equation_system.dofs_of(['z_NaCl'])
         h_dof_idx = self.equation_system.dofs_of(['enthalpy'])
@@ -211,36 +189,37 @@ class GeothermalFlowModel(FlowModel):
         # control overshoots in:
         # pressure
         new_p = delta_x[p_dof_idx] + p_0
-        new_p = np.where(new_p < 0.0, 0.0, new_p)
-        new_p = np.where(new_p > 100.0, 100.0, new_p)
+        new_p = np.where(new_p < pmin, pmin, new_p)
+        new_p = np.where(new_p > pmax, pmax, new_p)
         delta_x[p_dof_idx] = new_p - p_0
 
         # composition
         new_z = delta_x[z_dof_idx] + z_0
-        new_z = np.where(new_z < 0.0, 0.0, new_z)
-        new_z = np.where(new_z > 0.3, 0.3, new_z)
+        new_z = np.where(new_z < zmin, zmin, new_z)
+        new_z = np.where(new_z > zmax, zmax, new_z)
         delta_x[z_dof_idx] = new_z - z_0
 
         # enthalpy
         new_h = delta_x[h_dof_idx] + h_0
-        new_h = np.where(new_h < 0.0, 0.0, new_h)
-        new_h = np.where(new_h > 4.0, 4.0, new_h)
+        new_h = np.where(new_h < hmin, hmin, new_h)
+        new_h = np.where(new_h > hmax, hmax, new_h)
         delta_x[h_dof_idx] = new_h - h_0
 
         # temperature
         new_t = delta_x[t_dof_idx] + t_0
         new_t = np.where(new_t < 0.0, 0.0, new_t)
-        new_t = np.where(new_t > 1200.0, 1200.0, new_t)
+        new_t = np.where(new_t > 1273.15, 1273.15, new_t)
         delta_x[t_dof_idx] = new_t - t_0
 
         # secondary fractions
         for dof_idx in [s_dof_idx, xw_v_dof_idx, xw_l_dof_idx, xs_v_dof_idx, xs_l_dof_idx]:
-        # for dof_idx in [s_dof_idx]:
             new_q = delta_x[dof_idx] + x0[dof_idx]
             new_q = np.where(new_q < 0.0, 0.0, new_q)
             new_q = np.where(new_q > 1.0, 1.0, new_q)
             delta_x[dof_idx] = new_q - x0[dof_idx]
 
+        te = time.time()
+        print("Elapsed time for postprocessing overshoots: ", te - tb)
         return
 
     def postprocessing_enthalpy_overshoots(self, delta_x):
@@ -253,19 +232,25 @@ class GeothermalFlowModel(FlowModel):
         z_0 = x0[z_dof_idx]
         h_0 = x0[h_dof_idx]
         t_0 = x0[t_dof_idx]
-        max_dH = 0.5
+        max_dH = 1.0
 
-        if np.where(np.abs(delta_x[h_dof_idx]) > max_dH)[0].shape[0] > 0:
-            print('PostprocessingOvershoots:: Apply bisection correction.')
+        dh_overshoots_idx = np.where(np.abs(delta_x[h_dof_idx]) > max_dH)[0]
+        if dh_overshoots_idx.shape[0] > 0:
+            tb = time.time()
+            p0_red = p_0[dh_overshoots_idx]
+            h0_red = h_0[dh_overshoots_idx]
+            z0_red = z_0[dh_overshoots_idx]
             t = delta_x[t_dof_idx] + t_0
-            h, idx = self.bisection_method(p_0, z_0, t)
-            dh = h - h_0[idx]
-            new_dh = np.where(np.abs(delta_x[h_dof_idx][idx]) > max_dH, dh, delta_x[h_dof_idx][idx])
-            delta_x[h_dof_idx][idx] = new_dh
-
+            t_red = t[dh_overshoots_idx]
+            h, idx = self.bisection_method(p0_red, z0_red, t_red)
+            dh = h - h0_red[idx]
+            new_dh = np.where(np.abs(delta_x[h_dof_idx][dh_overshoots_idx][idx]) > max_dH, dh, delta_x[h_dof_idx][dh_overshoots_idx][idx])
+            delta_x[h_dof_idx][dh_overshoots_idx][idx] = new_dh
+            te = time.time()
+            print("Elapsed time for bisection enthalpy correction: ", te - tb)
         return
 
-    def bisection_method(self, p, z, t_target, tol=1e-2, max_iter=100):
+    def bisection_method(self, p, z, t_target, tol=1e-1, max_iter=100):
         a = np.zeros_like(t_target)
         b = 4.0 * np.ones_like(t_target)
         f_res = lambda H_val: t_target - self.temperature_function(
