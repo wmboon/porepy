@@ -197,19 +197,19 @@ class GeothermalFlowModel(FlowModel):
         # pressure
         new_p = delta_x[p_dof_idx] + p_0
         new_p = np.where(new_p < 0.0, 0.0, new_p)
-        new_p = np.where(new_p > pmax, pmax, new_p)
+        new_p = np.where(new_p > 100.0, 100.0, new_p)
         delta_x[p_dof_idx] = new_p - p_0
 
         # composition
         new_z = delta_x[z_dof_idx] + z_0
         new_z = np.where(new_z < 0.0, 0.0, new_z)
-        new_z = np.where(new_z > zmax, zmax, new_z)
+        new_z = np.where(new_z > 0.35, 0.35, new_z)
         delta_x[z_dof_idx] = new_z - z_0
 
         # enthalpy
         new_h = delta_x[h_dof_idx] + h_0
         new_h = np.where(new_h < 0.0, 0.0, new_h)
-        new_h = np.where(new_h > hmax, hmax, new_h)
+        new_h = np.where(new_h > 4.0, 4.0, new_h)
         delta_x[h_dof_idx] = new_h - h_0
 
         # temperature
