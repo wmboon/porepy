@@ -12,11 +12,10 @@ def gas_saturation_func(
 ) -> tuple[np.ndarray, np.ndarray]:
 
     p, h, z_NaCl = thermodynamic_dependencies
-    # same for all input (number of cells)
     assert len(p) == len(h) == len(z_NaCl)
 
     nc = len(thermodynamic_dependencies[0])
-    vals = np.zeros_like(z_NaCl)
+    vals = 0.5 * np.ones_like(z_NaCl)
     # row-wise storage of derivatives, (3, nc) array
     diffs = np.zeros((len(thermodynamic_dependencies), nc))
     return vals, diffs
@@ -26,7 +25,6 @@ def temperature_func(
     *thermodynamic_dependencies: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     p, h, z_NaCl = thermodynamic_dependencies
-    # same for all input (number of cells)
     assert len(p) == len(h) == len(z_NaCl)
 
     nc = len(thermodynamic_dependencies[0])
@@ -60,7 +58,6 @@ def H2O_liq_func(
     *thermodynamic_dependencies: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     p, h, z_NaCl = thermodynamic_dependencies
-    # same for all input (number of cells)
     assert len(p) == len(h) == len(z_NaCl)
 
     nc = len(thermodynamic_dependencies[0])
@@ -75,7 +72,6 @@ def NaCl_liq_func(
     *thermodynamic_dependencies: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     p, h, z_NaCl = thermodynamic_dependencies
-    # same for all input (number of cells)
     assert len(p) == len(h) == len(z_NaCl)
 
     nc = len(thermodynamic_dependencies[0])
@@ -90,7 +86,6 @@ def H2O_gas_func(
     *thermodynamic_dependencies: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     p, h, z_NaCl = thermodynamic_dependencies
-    # same for all input (number of cells)
     assert len(p) == len(h) == len(z_NaCl)
 
     nc = len(thermodynamic_dependencies[0])
@@ -105,7 +100,6 @@ def NaCl_gas_func(
     *thermodynamic_dependencies: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     p, h, z_NaCl = thermodynamic_dependencies
-    # same for all input (number of cells)
     assert len(p) == len(h) == len(z_NaCl)
 
     nc = len(thermodynamic_dependencies[0])
@@ -298,8 +292,6 @@ class GasLikeCorrelations(ppc.AbstractEoS):
         """
 
         p, h, z_NaCl = thermodynamic_input
-
-        # same for all input (number of cells)
         assert len(p) == len(h) == len(z_NaCl)
         nc = len(thermodynamic_input[0])
 
