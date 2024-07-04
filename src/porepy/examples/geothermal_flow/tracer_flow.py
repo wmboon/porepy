@@ -18,7 +18,7 @@ solenoidal vector field.
 """
 
 from __future__ import annotations
-
+from typing import Union, Literal
 import time
 
 import numpy as np
@@ -28,8 +28,8 @@ import porepy as pp
 
 day = 86400
 t_scale = 1.0
-tf = 2.5 * day
-dt = 0.25 * day
+tf = 0.25 * day
+dt = 0.025 * day
 time_manager = pp.TimeManager(
     schedule=[0.0, tf],
     dt_init=dt,
@@ -72,6 +72,31 @@ class TracerLikeFlowModel(FlowModel):
 
     def after_simulation(self):
         self.exporter.write_pvd()
+
+    def gravity_force(
+        self,
+        grids: Union[list[pp.Grid], list[pp.MortarGrid]],
+        material: Literal["fluid", "solid"],
+    ) -> pp.ad.Operator:
+
+        val = self.fluid.convert_units(pp.GRAVITY_ACCELERATION, "m*s^-2")
+        size = np.sum([g.num_cells for g in grids]).astype(int)
+        gravity = pp.wrap_as_dense_ad_array(val, size=size, name="gravity")
+        rho = getattr(self, material + "_density")(grids)
+
+        # Gravity acts along the last coordinate direction (z in 3d, y in 2d). Ignore
+        # type error, can't get mypy to understand keyword-only arguments in mixin.
+        e_n = self.e_i(grids, i=self.nd - 1, dim=self.nd)  # type: ignore[call-arg]
+        # e_n is a matrix, thus we need @ for it.
+        gravity = pp.ad.Scalar(-1.0) * e_n @ (rho * gravity)
+        gravity.set_name("gravity_force")
+        return gravity
+
+    def vector_source_darcy_flux(
+        self, grids: Union[list[pp.Grid], list[pp.MortarGrid]]
+    ) -> pp.ad.Operator:
+        aka = 0
+        return self.gravity_force(grids, "fluid")
 
 
 model = TracerLikeFlowModel(params)
