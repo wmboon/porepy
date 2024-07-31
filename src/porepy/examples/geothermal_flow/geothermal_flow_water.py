@@ -21,8 +21,8 @@ import porepy as pp
 #     print_info=True,
 # )
 day = 86400 #seconds in a day.
-tf = 547500.0 * day # final time [1500 years]
-dt = 5475.00 * day # time step size [1.2 years]
+tf = 5475.000 * day # final time [1500 years]
+dt = 54.7500 * day # time step size [1.2 years]
 time_manager = pp.TimeManager(
     schedule=[0.0, tf],
     dt_init=dt,
