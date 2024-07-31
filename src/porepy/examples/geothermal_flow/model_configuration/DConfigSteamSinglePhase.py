@@ -40,7 +40,7 @@ class BoundaryConditions(BoundaryConditionsCF):
 
     def bc_values_temperature(self, boundary_grid: pp.BoundaryGrid) -> np.ndarray:
         inlet_idx, outlet_idx = self.get_inlet_outlet_sides(boundary_grid)
-        t_inlet = 773.15  #[K]
+        t_inlet = 700.15  #[K]
         t_outlet = 623.15  #[K]
         T = t_outlet * np.ones(boundary_grid.num_cells)
         T[inlet_idx] = t_inlet
