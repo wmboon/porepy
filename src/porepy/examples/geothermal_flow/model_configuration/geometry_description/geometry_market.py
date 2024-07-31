@@ -243,6 +243,47 @@ class SimpleGeometry1D(Geometry):
         inlet_facets = find_facets(self._inlet_centre)
         outlet_facets = find_facets(self._outlet_centre)
         return inlet_facets, outlet_facets
+    
+    
+class SimpleGeometry3D(ModelGeometry):
+    """A class to represent a simple 1D geometry for a simulation domain. 
+       The start of domain serve as inlet and end of domain serves as the outlet
+    """
+    _dist_from_ref_point:float = 1050.0
+    _inlet_centre:np.ndarray = np.array([0.0, 1000.0, 1000.0])
+    _outlet_centre:np.ndarray = np.array([2000.0, 1000.0, 1000.0])
+    def set_domain(self) -> None:
+        x_length = self.solid.convert_units(2000.0,"m")
+        y_length = self.solid.convert_units(2000.0,"m")
+        z_length = self.solid.convert_units(2000.0,"m")
+        box:dict[str, pp.number] = {"xmax": x_length,"ymax":y_length, "zmax":z_length}
+        self._domain = pp.Domain(box)
+        
+    def grid_type(self) -> str:
+        return self.params.get("grid_type", "cartesian")
+    
+    def meshing_arguments(self) -> dict:
+        cell_size = self.solid.convert_units(100.0, "m")
+        mesh_args: dict[str, float] = {"cell_size": cell_size}
+        return mesh_args
+
+    def get_inlet_outlet_sides(self, sd: pp.Grid | pp.BoundaryGrid) -> np.ndarray:
+        if isinstance(sd, pp.Grid):
+            face_centers = sd.face_centers.T
+        elif isinstance(sd, pp.BoundaryGrid):
+            face_centers = sd.cell_centers.T
+        else:
+            raise ValueError("Type not expected.")
+        boundary_faces = self.domain_boundary_sides(sd)
+        bf_indices = boundary_faces.all_bf
+        
+        def find_facets(center:np.ndarray)-> np.ndarray:
+            logical = face_centers[bf_indices][:,0]==center[0]
+            return bf_indices[logical]
+        
+        inlet_facets = find_facets(self._inlet_centre)
+        outlet_facets = find_facets(self._outlet_centre)
+        return inlet_facets, outlet_facets
         
         
         
