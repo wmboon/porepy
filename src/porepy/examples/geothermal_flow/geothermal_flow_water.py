@@ -69,7 +69,8 @@ class GeothermalWaterFlowModel(FlowModel):
 model = GeothermalWaterFlowModel(params)
 
 parametric_space_ref_level = 2
-file_name_prefix = "/Users/michealoguntola/porepy/src/porepy/examples/geothermal_flow/model_configuration/constitutive_description/driesner_vtk_files/"
+# file_name_prefix = "/Users/michealoguntola/porepy/src/porepy/examples/geothermal_flow/model_configuration/constitutive_description/driesner_vtk_files/"
+file_name_prefix = "model_configuration/constitutive_description/driesner_vtk_files/"
 file_name_phz = (
     file_name_prefix + "XHP_l" + str(parametric_space_ref_level) + "_modified.vtk"
 )
