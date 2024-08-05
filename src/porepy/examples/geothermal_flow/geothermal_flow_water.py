@@ -11,6 +11,9 @@ from vtk_sampler import VTKSampler
 
 import porepy as pp
 
+day = 86400
+tf = 91250.0 * day # final time [750 years]
+dt = 912.50 * day # time step size [75 years]
 # Pure water single liquid phase
 # day = 86400 #seconds in a day.
 # tf = 91250.0 * day # final time [250 years]
@@ -26,7 +29,7 @@ import porepy as pp
 # Pure water and steam - 2Phases - Low pressure gradient and temperature
 day = 86400 #seconds in a day.
 tf = 730000.0 * day # final time [250 years]
-dt = 200.00 * day # time step size [2,5 years]
+dt = 73000.0 * day # time step size [2,5 years]
 time_manager = pp.TimeManager(
     schedule=[0.0, tf],
     dt_init=dt,
@@ -81,12 +84,14 @@ file_name_phz = (
 file_name_ptz = (
     file_name_prefix + "XTP_l" + str(parametric_space_ref_level) + "_modified.vtk"
 )
-
+constant_extended_fields = ['S_v', 'S_l', 'S_h', 'Xl', 'Xv']
 brine_sampler_phz = VTKSampler(file_name_phz)
+brine_sampler_phz.constant_extended_fields = constant_extended_fields
 brine_sampler_phz.conversion_factors = (1.0, 1.0e-3, 1.0e-5)  # (z,h,p)
 model.vtk_sampler = brine_sampler_phz
 
 brine_sampler_ptz = VTKSampler(file_name_ptz)
+brine_sampler_ptz.constant_extended_fields = constant_extended_fields
 brine_sampler_ptz.conversion_factors = (1.0, 1.0, 1.0e-5)  # (z,t,p)
 brine_sampler_ptz.translation_factors = (0.0, -273.15, 0.0)  # (z,t,p)
 model.vtk_sampler_ptz = brine_sampler_ptz
