@@ -20,9 +20,10 @@ import porepy as pp
 #     iter_max=50,
 #     print_info=True,
 # )
+# Pure water and steam - 2Phases - Low pressure gradient and temperature
 day = 86400 #seconds in a day.
-tf = 5475.000 * day # final time [1500 years]
-dt = 54.7500 * day # time step size [1.2 years]
+tf = 730000.0 * day # final time [250 years]
+dt = 200.00 * day # time step size [2,5 years]
 time_manager = pp.TimeManager(
     schedule=[0.0, tf],
     dt_init=dt,
@@ -35,7 +36,7 @@ solid_constants = pp.SolidConstants(
     {
         "permeability": 1.0e-15,
         "porosity": 0.1,
-        "thermal_conductivity": 0.01,
+        "thermal_conductivity": 0.16,
         "density": 2700.0,
         "specific_heat_capacity": 880.0,
     }
@@ -69,8 +70,8 @@ class GeothermalWaterFlowModel(FlowModel):
 model = GeothermalWaterFlowModel(params)
 
 parametric_space_ref_level = 2
-# file_name_prefix = "/Users/michealoguntola/porepy/src/porepy/examples/geothermal_flow/model_configuration/constitutive_description/driesner_vtk_files/"
-file_name_prefix = "model_configuration/constitutive_description/driesner_vtk_files/"
+file_name_prefix = "/Users/michealoguntola/porepy/src/porepy/examples/geothermal_flow/model_configuration/constitutive_description/driesner_vtk_files/"
+# file_name_prefix = "model_configuration/constitutive_description/driesner_vtk_files/"
 file_name_phz = (
     file_name_prefix + "XHP_l" + str(parametric_space_ref_level) + "_modified.vtk"
 )
