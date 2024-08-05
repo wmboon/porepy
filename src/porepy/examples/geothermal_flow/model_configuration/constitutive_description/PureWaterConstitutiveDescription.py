@@ -266,7 +266,7 @@ class SecondaryEquations(SecondaryEquationsMixin):
         dS_v = np.vstack((dS_vdp, dS_vdH, dS_vdz))
 
         if np.any(S_v < 0.0):
-            raise ValueError("There is negative fraction")
+            raise ValueError("There is a negative fraction.")
         return S_v, dS_v
 
     def temperature_func(
@@ -304,7 +304,7 @@ class SecondaryEquations(SecondaryEquationsMixin):
         dX_wdp = -self.vtk_sampler.sampled_could.point_data["grad_Xl"][:, 2]
         dX_w = np.vstack((dX_wdp, dX_wdH, dX_wdz))
         if np.any(X_w < 0.0):
-            raise ValueError("There is negative fraction")
+            raise ValueError("There is a negative fraction.")
         return X_w, dX_w
 
     def NaCl_liq_func(
@@ -323,7 +323,7 @@ class SecondaryEquations(SecondaryEquationsMixin):
         dX_sdp = self.vtk_sampler.sampled_could.point_data["grad_Xl"][:, 2]
         dX_s = np.vstack((dX_sdp, dX_sdH, dX_sdz))
         if np.any(X_s < 0.0):
-            raise ValueError("There is negative fraction")
+            raise ValueError("There is a negative fraction.")
         return X_s, dX_s
 
     def H2O_gas_func(
@@ -342,7 +342,7 @@ class SecondaryEquations(SecondaryEquationsMixin):
         dX_wdp = -self.vtk_sampler.sampled_could.point_data["grad_Xv"][:, 2]
         dX_w = np.vstack((dX_wdp, dX_wdH, dX_wdz))
         if np.any(X_w < 0.0):
-            raise ValueError("There is negative fraction")
+            raise ValueError("There is a negative fraction.")
         return X_w, dX_w
 
     def NaCl_gas_func(
@@ -361,7 +361,7 @@ class SecondaryEquations(SecondaryEquationsMixin):
         dX_sdp = self.vtk_sampler.sampled_could.point_data["grad_Xv"][:, 2]
         dX_s = np.vstack((dX_sdp, dX_sdH, dX_sdz))
         if np.any(X_s < 0.0):
-            raise ValueError("There is negative fraction")
+            raise ValueError("There is a negative fraction.")
         return X_s, dX_s
 
     def set_equations(self) -> None:
