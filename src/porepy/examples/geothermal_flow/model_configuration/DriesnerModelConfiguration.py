@@ -130,6 +130,14 @@ class DriesnerBrineFlowModel(
     def vtk_sampler(self, vtk_sampler):
         self._vtk_sampler = vtk_sampler
 
+    @property
+    def vtk_sampler_ptz(self):
+        return self._vtk_sampler_phz
+
+    @vtk_sampler_ptz.setter
+    def vtk_sampler_ptz(self, vtk_sampler):
+        self._vtk_sampler_phz = vtk_sampler
+
     def relative_permeability(self, saturation: pp.ad.Operator) -> pp.ad.Operator:
         return saturation**2
 
@@ -337,3 +345,4 @@ class DriesnerBrineFlowModel(
             a[idx_p] = c[idx_p]
 
         raise RuntimeError("Bisection:: Maximum number of iterations reached without convergence.")
+

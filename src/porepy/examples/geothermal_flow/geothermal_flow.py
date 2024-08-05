@@ -7,8 +7,9 @@ composition (z_NaCl) as primary variables.
 Equilibrium calculations are included in the correlations. As a result, they contain
 expressions for saturation, partial fractions, and temperature based on primary variables.
 
-The correlations are interpolated with VTK using a standalone object (VTKSampler). This
-object provides functions and their gradients in the product space (z_NaCl, H, P) in R^3.
+The correlations are interpolated with VTK using a standalone object (VTKSampler). Two
+instances of that object provide functions and their gradients within the product spaces
+(z_NaCl, xi, P) in R^3, where xi in {H,T}.
 
 """
 
@@ -28,7 +29,6 @@ day = 86400
 tf = 0.001 * day
 dt = 0.0001 * day
 dynamic_time_step_q = False
-
 if dynamic_time_step_q:
     time_manager = pp.TimeManager(
         schedule=[0.0, tf],
@@ -84,12 +84,22 @@ model = GeothermalFlowModel(params)
 
 parametric_space_ref_level = 2
 file_name_prefix = "model_configuration/constitutive_description/driesner_vtk_files/"
-file_name = (
+file_name_phz = (
     file_name_prefix + "XHP_l" + str(parametric_space_ref_level) + "_modified.vtk"
 )
-brine_sampler = VTKSampler(file_name)
-brine_sampler.conversion_factors = (1.0, 1.0e3, 10.0)  # (z [-], h [kJ/kg], p [MPa])
-model.vtk_sampler = brine_sampler
+file_name_ptz = (
+    file_name_prefix + "XTP_l" + str(parametric_space_ref_level) + "_modified.vtk"
+)
+
+brine_sampler_phz = VTKSampler(file_name_phz)
+brine_sampler_phz.conversion_factors = (1.0, 1.0e-3, 1.0e-5)  # (z,h,p)
+model.vtk_sampler = brine_sampler_phz
+
+brine_sampler_ptz = VTKSampler(file_name_ptz)
+brine_sampler_ptz.conversion_factors = (1.0, 1.0, 1.0e-5)  # (z,t,p)
+brine_sampler_ptz.translation_factors = (0.0, -273.15, 0.0)  # (z,t,p)
+model.vtk_sampler_ptz = brine_sampler_ptz
+
 
 
 tb = time.time()

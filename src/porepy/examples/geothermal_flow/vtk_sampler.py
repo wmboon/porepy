@@ -23,6 +23,18 @@ class VTKSampler:
     def conversion_factors(self, conversion_factors):
         self._conversion_factors = conversion_factors
 
+
+    @property
+    def translation_factors(self):
+        if hasattr(self, "_translation_factors"):
+            return self._translation_factors
+        else:
+            return (0.0, 0.0, 0.0)  # No translation
+
+    @translation_factors.setter
+    def translation_factors(self, translation_factors):
+        self._translation_factors = translation_factors
+
     @property
     def file_name(self):
         return self._file_name
@@ -64,8 +76,8 @@ class VTKSampler:
         self._fields_constant_extension = fields_constant_extension
 
     def sample_at(self, points):
-        # tb = time.time()
         points = self._apply_conversion_factor(points)
+        points = self._apply_translation_factor(points)
 
         point_cloud = pyvista.PolyData(points)
         self.sampled_could = point_cloud.sample(self._search_space)
@@ -79,13 +91,15 @@ class VTKSampler:
             self.__taylor_expansion(points, external_idx)
 
         self._apply_conversion_factor_on_gradients()
-        # te = time.time()
-        # print("VTKSampler:: Sampled n_points: ", len(points))
-        # print("VTKSampler:: Time for sampling: ", te - tb)
 
     def _apply_conversion_factor(self, points):
         for i, scale in enumerate(self.conversion_factors):
             points[:, i] *= scale
+        return points
+
+    def _apply_translation_factor(self, points):
+        for i, translation in enumerate(self.translation_factors):
+            points[:, i] += translation
         return points
 
     def _apply_conversion_factor_on_gradients(self):
@@ -117,6 +131,8 @@ class VTKSampler:
         zmax -= eps
 
         # detect regions
+
+        # facets predicates
         w_q = cp.w_predicate(*xv.T, bounds)
         e_q = cp.e_predicate(*xv.T, bounds)
         s_q = cp.s_predicate(*xv.T, bounds)
@@ -124,19 +140,19 @@ class VTKSampler:
         b_q = cp.b_predicate(*xv.T, bounds)
         t_q = cp.t_predicate(*xv.T, bounds)
 
-        # x range
+        # x range: edges parallel to x axis
         sb_q = cp.sb_predicate(*xv.T, bounds)
         nb_q = cp.nb_predicate(*xv.T, bounds)
         st_q = cp.st_predicate(*xv.T, bounds)
         nt_q = cp.nt_predicate(*xv.T, bounds)
 
-        # y range
+        # y range: edges parallel to y axis
         wb_q = cp.wb_predicate(*xv.T, bounds)
         eb_q = cp.eb_predicate(*xv.T, bounds)
         wt_q = cp.wt_predicate(*xv.T, bounds)
         et_q = cp.et_predicate(*xv.T, bounds)
 
-        # z range
+        # z range: edges parallel to z axis
         ws_q = cp.ws_predicate(*xv.T, bounds)
         es_q = cp.es_predicate(*xv.T, bounds)
         wn_q = cp.wn_predicate(*xv.T, bounds)
