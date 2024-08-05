@@ -4,12 +4,14 @@ import time
 
 import numpy as np
 
-from model_configuration.DConfigSteamSinglePhase import (
+from model_configuration.DConfigSteamWaterPhasesLowPa import (
     DriesnerWaterFlowModel as FlowModel,
 )
 from vtk_sampler import VTKSampler
 
 import porepy as pp
+
+# Pure water single liquid phase
 # day = 86400 #seconds in a day.
 # tf = 91250.0 * day # final time [250 years]
 # dt = 912.50 * day # time step size [2,5 years]
@@ -20,6 +22,7 @@ import porepy as pp
 #     iter_max=50,
 #     print_info=True,
 # )
+
 # Pure water and steam - 2Phases - Low pressure gradient and temperature
 day = 86400 #seconds in a day.
 tf = 730000.0 * day # final time [250 years]
@@ -70,8 +73,8 @@ class GeothermalWaterFlowModel(FlowModel):
 model = GeothermalWaterFlowModel(params)
 
 parametric_space_ref_level = 2
-file_name_prefix = "/Users/michealoguntola/porepy/src/porepy/examples/geothermal_flow/model_configuration/constitutive_description/driesner_vtk_files/"
-# file_name_prefix = "model_configuration/constitutive_description/driesner_vtk_files/"
+# file_name_prefix = "/Users/michealoguntola/porepy/src/porepy/examples/geothermal_flow/model_configuration/constitutive_description/driesner_vtk_files/"
+file_name_prefix = "model_configuration/constitutive_description/driesner_vtk_files/"
 file_name_phz = (
     file_name_prefix + "XHP_l" + str(parametric_space_ref_level) + "_modified.vtk"
 )

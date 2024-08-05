@@ -264,6 +264,10 @@ class SecondaryEquations(SecondaryEquationsMixin):
         dS_vdH = self.vtk_sampler.sampled_could.point_data["grad_S_v"][:, 1]
         dS_vdp = self.vtk_sampler.sampled_could.point_data["grad_S_v"][:, 2]
         dS_v = np.vstack((dS_vdp, dS_vdH, dS_vdz))
+        
+        if np.any(S_v)<0.0:
+            print("There is negative gas saturation")
+
         return S_v, dS_v
 
     def temperature_func(
