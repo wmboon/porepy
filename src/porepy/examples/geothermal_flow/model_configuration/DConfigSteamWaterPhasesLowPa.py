@@ -152,7 +152,15 @@ class DriesnerWaterFlowModel(
     ) -> pp.ad.Operator:
         """Corey's two-phase relative permeability model
         """
-        return saturation
+        # The residual saturation of the liquid phase. (non-wetting phase)
+        Rl = pp.ad.Scalar(0.3) 
+        Rv = pp.ad.Scalar(0.0)
+        if saturation.name == "reference-phase-saturation-by-unity":
+            Krl = (saturation - Rl) / (pp.ad.Scalar(1.0) - Rl)
+            Krl_positive = pp.ad.Scalar(0.5) * (Krl +(Krl**2)**0.5) #to avoid negative value.
+            return Krl_positive
+        else:
+            return (saturation - Rv)  / (pp.ad.Scalar(1.0) - Rl)
 
     @property
     def vtk_sampler(self):
