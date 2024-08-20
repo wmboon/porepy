@@ -8,28 +8,14 @@ from model_configuration.DConfigSteamWaterPhasesLowPa import (
     DriesnerWaterFlowModel as FlowModel,
 )
 from vtk_sampler import VTKSampler
-
+from thermo import FlashPureVLS, IAPWS95Liquid, IAPWS95Gas, iapws_constants, iapws_correlations
+import matplotlib.pyplot as plt
 import porepy as pp
-
-day = 86400
-tf = 91250.0 * day # final time [750 years]
-dt = 912.50 * day # time step size [75 years]
-# Pure water single liquid phase
-# day = 86400 #seconds in a day.
-# tf = 91250.0 * day # final time [250 years]
-# dt = 912.50 * day # time step size [2,5 years]
-# time_manager = pp.TimeManager(
-#     schedule=[0.0, tf],
-#     dt_init=dt,
-#     constant_dt=True,
-#     iter_max=50,
-#     print_info=True,
-# )
 
 # Pure water and steam - 2Phases - Low pressure gradient and temperature
 day = 86400 #seconds in a day.
 tf = 730000.0 * day # final time [2000 years]
-dt = 73.0 * day # time step size [0.1 years]
+dt = 730.0 * day # time step size [2 years]
 time_manager = pp.TimeManager(
     schedule=[0.0, tf],
     dt_init=dt,
@@ -79,7 +65,7 @@ class GeothermalWaterFlowModel(FlowModel):
     def solve_linear_system(self) -> np.ndarray:
         """After calling the parent method, the global solution is calculated by Schur
         expansion."""
-        petsc_solver_q = self.params.get("petsc_solver_q", False)
+
         eq_idx_map = self.equation_system.assembled_equation_indices
         p_dof_idx = eq_idx_map['pressure_equation']
         z_dof_idx = eq_idx_map['mass_balance_equation_NaCl']
@@ -244,7 +230,7 @@ class GeothermalWaterFlowModel(FlowModel):
 # Instance of the computational model
 model = GeothermalWaterFlowModel(params)
 
-parametric_space_ref_level = 1
+parametric_space_ref_level = 0
 file_name_prefix = "model_configuration/constitutive_description/driesner_vtk_files/"
 file_name_phz = (
     file_name_prefix + "XHP_l" + str(parametric_space_ref_level) + "_modified.vtk"
@@ -270,6 +256,113 @@ te = time.time()
 print("Elapsed time prepare simulation: ", te - tb)
 print("Simulation prepared for total number of DoF: ", model.equation_system.num_dofs())
 print("Mixed-dimensional grid employed: ", model.mdg)
+
+
+# def load_and_project_reference_data(model):
+#     # doi: 10.1111/gfl.12080
+#     p_data = np.genfromtxt('pressure_data_fig6A.csv', delimiter=',', skip_header=1)
+#     t_data = np.genfromtxt('temperature_data_fig6A.csv', delimiter=',', skip_header=1)
+#     sl_data = np.genfromtxt('saturation_liq_data_fig6B.csv', delimiter=',', skip_header=1)
+#
+#     p_data[:, 0] *= 1.0e3
+#     t_data[:, 0] *= 1.0e3
+#     sl_data[:, 0] *= 1.0e3
+#
+#     p_data[:, 1] *= 1.0e6
+#     t_data[:, 1] += 273.15
+#
+#     xc = model.mdg.subdomains()[0].cell_centers.T
+#     p_proj = np.interp(xc[:, 0], p_data[:, 0], p_data[:, 1])
+#     t_proj = np.interp(xc[:, 0], t_data[:, 0], t_data[:, 1])
+#     s_proj = np.interp(xc[:, 0], sl_data[:, 0], sl_data[:, 1])
+#
+#     # triple point of water
+#     T_ref = 273.16
+#     P_ref = 611.657
+#     # MW_H2O = iapws_constants.MWs[0] * 1.0e-3  # [Kg/mol]
+#     liquid = IAPWS95Liquid(T=T_ref, P=P_ref, zs=[1])
+#     gas = IAPWS95Gas(T=T_ref, P=P_ref, zs=[1])
+#     flasher = FlashPureVLS(iapws_constants, iapws_correlations, gas, [liquid], [])
+#
+#     def bisection(p, s, tol=1e-8, max_iter=1000):
+#         a = 0.0
+#         b = 1.0
+#
+#         def func(p, s, v):
+#             PV = flasher.flash(P=p, VF=v)
+#             assert len(PV.betas_volume) == 2
+#             res = s - PV.betas_volume[0]
+#             return res
+#
+#         if func(p, s, a) * func(p, s, b) >= 0:
+#             raise ValueError("f(a) and f(b) must have opposite signs")
+#
+#         for _ in range(max_iter):
+#             c = (a + b) / 2
+#             if abs(func(p, s, c)) < tol or (b - a) / 2 < tol:
+#                 return c
+#             elif func(p, s, c) * func(p, s, a) < 0:
+#                 b = c
+#             else:
+#                 a = c
+#         raise RuntimeError("Maximum iterations exceeded")
+#
+#     h_data = []
+#     for i, pair in enumerate(zip(p_proj, t_proj)):
+#         s_v = 1.0 - s_proj[i]
+#         if np.isclose(s_v, 0.0) or np.isclose(s_v, 1.0):
+#             PT = flasher.flash(P=pair[0], T=pair[1])
+#             h_data.append(PT.H_mass())
+#         else:
+#             vf = bisection(pair[0], s_v)
+#             PT = flasher.flash(P=pair[0], VF=vf)
+#             h_data.append(PT.H_mass())
+#     h_proj = np.array(h_data)
+#     return p_proj, h_proj, t_proj, s_proj
+#
+# P_proj, H_proj, T_proj, S_proj = load_and_project_reference_data(model)
+#
+# z_proj = (1.0e-3) * np.ones_like(S_proj)
+# par_points = np.array((z_proj, H_proj, P_proj)).T
+# model.vtk_sampler.sample_at(par_points)
+# H_vtk = model.vtk_sampler.sampled_could.point_data['H']
+# T_vtk = model.vtk_sampler.sampled_could.point_data['Temperature']
+# S_vtk = model.vtk_sampler.sampled_could.point_data['S_l']
+#
+# def draw_and_save_comparison(T_proj,T_vtk,S_proj,S_vtk,H_proj,H_vtk):
+#     # plot the data
+#     figure_data = {
+#         'T': ('temperarure_at_2000_years.png', 'T - Fig. 6A P. WEIS (2014)', 'T - VTKsample + GEOMAR'),
+#         'S': ('liquid_saturation_at_2000_years.png', 's_l - Fig. 6B P. WEIS (2014)', 's_l - VTKsample + GEOMAR'),
+#         'H': ('enthalpy_at_2000_years.png', 'H - Fig. 6A P. WEIS (2014)', 'H - VTKsample + GEOMAR'),
+#     }
+#     fields_data = {
+#         'T': (T_proj,T_vtk),
+#         'S': (S_proj,S_vtk),
+#         'H': (H_proj,H_vtk),
+#     }
+#
+#     xc = model.mdg.subdomains()[0].cell_centers.T
+#     cell_vols = model.mdg.subdomains()[0].cell_volumes
+#     for item in fields_data.items():
+#         field, data = item
+#         file_name, label_ref, label_vtk = figure_data[field]
+#         x = xc[:, 0]
+#         y1 = data[0]
+#         y2 = data[1]
+#
+#         l2_norm = np.linalg.norm((data[0] - data[1])*cell_vols) / np.linalg.norm(data[0] *cell_vols)
+#
+#         plt.plot(x, y1, label=label_ref)
+#         plt.plot(x, y2, label=label_vtk, linestyle='--')
+#
+#         plt.xlabel('Distance [Km]')
+#         plt.title('Relative l2_norm = ' + str(l2_norm))
+#         plt.legend()
+#         plt.savefig(file_name)
+#         plt.clf()
+#
+# draw_and_save_comparison(T_proj,T_vtk,S_proj,S_vtk,H_proj,H_vtk)
 
 # print geometry
 model.exporter.write_vtu()
