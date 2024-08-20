@@ -1,2 +1,5 @@
 *.vtk
 !model_configuration/constitutive_description/driesner_vtk_files/*.vtk
+!pressure_data_fig6A.csv
+!temperature_data_fig6A.csv
+!saturation_liq_data_fig6B.csv
