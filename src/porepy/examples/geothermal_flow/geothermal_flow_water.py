@@ -29,7 +29,7 @@ dt = 912.50 * day # time step size [75 years]
 # Pure water and steam - 2Phases - Low pressure gradient and temperature
 day = 86400 #seconds in a day.
 tf = 730000.0 * day # final time [2000 years]
-dt = 730.0 * day / 2.0 # time step size [1 years]
+dt = 73.0 * day # time step size [0.1 years]
 time_manager = pp.TimeManager(
     schedule=[0.0, tf],
     dt_init=dt,
@@ -111,7 +111,7 @@ class GeothermalWaterFlowModel(FlowModel):
         print("Elapsed time linear solve: ", te - tb)
 
         self.postprocessing_overshoots(sol)
-        self.postprocessing_enthalpy_overshoots(sol)
+        # self.postprocessing_enthalpy_overshoots(sol)
         return sol
 
     def postprocessing_overshoots(self, delta_x):
