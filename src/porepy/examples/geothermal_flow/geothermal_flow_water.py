@@ -28,8 +28,8 @@ dt = 912.50 * day # time step size [75 years]
 
 # Pure water and steam - 2Phases - Low pressure gradient and temperature
 day = 86400 #seconds in a day.
-tf = 730000.0 * day # final time [250 years]
-dt = 7300.0 * day # time step size [2,5 years]
+tf = 730000.0 * day # final time [2000 years]
+dt = 7300.0 * day / 4.0 # time step size [5 years]
 time_manager = pp.TimeManager(
     schedule=[0.0, tf],
     dt_init=dt,
@@ -56,8 +56,8 @@ params = {
     "prepare_simulation": False,
     "reduce_linear_system_q": False,
     "nl_convergence_tol": np.inf,
-    "nl_convergence_tol_res": 1.0e-3,
-    "max_iterations": 50,
+    "nl_convergence_tol_res": 1.0e-4,
+    "max_iterations": 150,
 }
 
 class GeothermalWaterFlowModel(FlowModel):
@@ -71,6 +71,10 @@ class GeothermalWaterFlowModel(FlowModel):
 
     def after_simulation(self):
         self.exporter.write_pvd()
+
+    def temperature_function(self, triplet) -> pp.ad.Operator:
+        T_vals, _ = self.temperature_func(*triplet)
+        return T_vals
 
     def solve_linear_system(self) -> np.ndarray:
         """After calling the parent method, the global solution is calculated by Schur
@@ -107,7 +111,7 @@ class GeothermalWaterFlowModel(FlowModel):
         print("Elapsed time linear solve: ", te - tb)
 
         self.postprocessing_overshoots(sol)
-        # self.postprocessing_enthalpy_overshoots(sol)
+        self.postprocessing_enthalpy_overshoots(sol)
         return sol
 
     def postprocessing_overshoots(self, delta_x):
@@ -168,7 +172,7 @@ class GeothermalWaterFlowModel(FlowModel):
             new_q = delta_x[dof_idx] + x0[dof_idx]
             new_q = np.where(new_q < 0.0, 0.0, new_q)
             new_q = np.where(new_q > 1.0, 1.0, new_q)
-            delta_x[dof_idx] = (new_q - x0[dof_idx])
+            delta_x[dof_idx] = new_q - x0[dof_idx]
 
         te = time.time()
         print("Elapsed time for postprocessing overshoots: ", te - tb)
@@ -194,15 +198,16 @@ class GeothermalWaterFlowModel(FlowModel):
             z0_red = z_0[dh_overshoots_idx]
             t = delta_x[t_dof_idx] + t_0
             t_red = t[dh_overshoots_idx]
-            h, idx = self.bisection_method(p0_red, z0_red, t_0)
-            dh = h - h0_red[idx]
-            new_dh = np.where(np.abs(delta_x[h_dof_idx][dh_overshoots_idx][idx]) > max_dH, dh, delta_x[h_dof_idx][dh_overshoots_idx][idx])
-            delta_x[h_dof_idx][dh_overshoots_idx][idx] = new_dh
+            h, idx = self.bisection_method(p0_red, z0_red, t_red)
+            if idx.shape[0] != 0:
+                dh = h - h0_red[idx]
+                new_dh = np.where(np.abs(delta_x[h_dof_idx][dh_overshoots_idx][idx]) > max_dH, dh, delta_x[h_dof_idx][dh_overshoots_idx][idx])
+                delta_x[h_dof_idx][dh_overshoots_idx][idx] = new_dh
             te = time.time()
             print("Elapsed time for bisection enthalpy correction: ", te - tb)
         return
 
-    def bisection_method(self, p, z, t_target, tol=1e-2, max_iter=100):
+    def bisection_method(self, p, z, t_target, tol=1e-3, max_iter=200):
         a = np.zeros_like(t_target)
         b = 4.0 * np.ones_like(t_target) * 1.0e6
         f_res = lambda H_val: t_target - self.temperature_function(
@@ -239,7 +244,7 @@ class GeothermalWaterFlowModel(FlowModel):
 # Instance of the computational model
 model = GeothermalWaterFlowModel(params)
 
-parametric_space_ref_level = 2
+parametric_space_ref_level = 0
 file_name_prefix = "model_configuration/constitutive_description/driesner_vtk_files/"
 file_name_phz = (
     file_name_prefix + "XHP_l" + str(parametric_space_ref_level) + "_modified.vtk"
