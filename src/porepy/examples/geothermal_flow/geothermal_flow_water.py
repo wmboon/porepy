@@ -72,6 +72,42 @@ class GeothermalWaterFlowModel(FlowModel):
     def after_simulation(self):
         self.exporter.write_pvd()
 
+    def solve_linear_system(self) -> np.ndarray:
+        """After calling the parent method, the global solution is calculated by Schur
+        expansion."""
+        petsc_solver_q = self.params.get("petsc_solver_q", False)
+        eq_idx_map = self.equation_system.assembled_equation_indices
+        p_dof_idx = eq_idx_map['pressure_equation']
+        z_dof_idx = eq_idx_map['mass_balance_equation_NaCl']
+        h_dof_idx = eq_idx_map['total_energy_balance']
+        t_dof_idx = eq_idx_map['elimination_of_temperature_on_grids_[0]']
+        s_dof_idx = eq_idx_map['elimination_of_s_gas_on_grids_[0]']
+        xw_v_dof_idx = eq_idx_map['elimination_of_x_H2O_gas_on_grids_[0]']
+        xw_l_dof_idx = eq_idx_map['elimination_of_x_H2O_liq_on_grids_[0]']
+        xs_v_dof_idx = eq_idx_map['elimination_of_x_NaCl_gas_on_grids_[0]']
+        xs_l_dof_idx = eq_idx_map['elimination_of_x_NaCl_liq_on_grids_[0]']
+
+        tb = time.time()
+        _, res_g = self.linear_system
+        sol = super().solve_linear_system()
+        reduce_linear_system_q = self.params.get("reduce_linear_system_q", False)
+        if reduce_linear_system_q:
+            raise ValueError("Case not implemented yet.")
+        te = time.time()
+        print("Overall residual norm at x_k: ", np.linalg.norm(res_g))
+        print("Pressure residual norm: ", np.linalg.norm(res_g[p_dof_idx]))
+        print("Composition residual norm: ", np.linalg.norm(res_g[z_dof_idx]))
+        print("Enthalpy residual norm: ", np.linalg.norm(res_g[h_dof_idx]))
+        print("Temperature residual norm: ", np.linalg.norm(res_g[t_dof_idx]))
+        print("Saturation residual norm: ", np.linalg.norm(res_g[s_dof_idx]))
+        print("x_H2O_gas residual norm: ", np.linalg.norm(res_g[xw_v_dof_idx]))
+        print("x_H2O_liq residual norm: ", np.linalg.norm(res_g[xw_l_dof_idx]))
+        print("x_NaCl_gas residual norm: ", np.linalg.norm(res_g[xs_v_dof_idx]))
+        print("x_NaCl_liq residual norm: ", np.linalg.norm(res_g[xs_l_dof_idx]))
+        print("Elapsed time linear solve: ", te - tb)
+
+        return sol
+
 # Instance of the computational model
 model = GeothermalWaterFlowModel(params)
 
