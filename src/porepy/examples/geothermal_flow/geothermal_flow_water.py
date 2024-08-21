@@ -98,9 +98,11 @@ class GeothermalWaterFlowModel(FlowModel):
             else:
                 return 1.0/10.0*np.pi
         enthalpy_alpha = newton_increment_constraint(np.linalg.norm(res_g[h_dof_idx]))
-        print("Enthalpy residual norm and constraint: ",
-              (np.linalg.norm(res_g[h_dof_idx]), enthalpy_alpha))
-        self.postprocessing_overshoots(sol, enthalpy_alpha)
+        temperature_alpha = newton_increment_constraint(np.linalg.norm(res_g[t_dof_idx]))
+        saturation_alpha = newton_increment_constraint(np.linalg.norm(res_g[s_dof_idx]))
+        alphas = [enthalpy_alpha,temperature_alpha,saturation_alpha]
+        print("Residual constraints: ", alphas)
+        self.postprocessing_overshoots(sol, alphas)
         # sol = self.increment_from_projected_solution()
         return sol
 
@@ -216,8 +218,8 @@ class GeothermalWaterFlowModel(FlowModel):
         delta_x = x_k - x0
         return delta_x
 
-    def postprocessing_overshoots(self, delta_x, enthalpy_alpha):
-
+    def postprocessing_overshoots(self, delta_x, alphas):
+        enthalpy_alpha, temperature_alpha, saturation_alpha = alphas
         zmin, zmax, hmin, hmax, pmin, pmax = self.vtk_sampler.search_space.bounds
         z_scale, h_scale, p_scale = self.vtk_sampler.conversion_factors
         zmin /= z_scale
@@ -265,16 +267,19 @@ class GeothermalWaterFlowModel(FlowModel):
 
         # temperature
         new_t = delta_x[t_dof_idx] + t_0
-        new_t = np.where(new_t < 0.0, 0.0, new_t)
+        new_t = np.where(new_t < 100.0, 100.0, new_t)
         new_t = np.where(new_t > 1273.15, 1273.15, new_t)
-        delta_x[t_dof_idx] = new_t - t_0
+        delta_x[t_dof_idx] = (new_t - t_0) * temperature_alpha
 
         # secondary fractions
-        for dof_idx in [s_dof_idx, xw_v_dof_idx, xw_l_dof_idx, xs_v_dof_idx, xs_l_dof_idx]:
+        for i, dof_idx in enumerate([s_dof_idx, xw_v_dof_idx, xw_l_dof_idx, xs_v_dof_idx, xs_l_dof_idx]):
             new_q = delta_x[dof_idx] + x0[dof_idx]
             new_q = np.where(new_q < 0.0, 0.0, new_q)
             new_q = np.where(new_q > 1.0, 1.0, new_q)
-            delta_x[dof_idx] = (new_q - x0[dof_idx])
+            if i == 0:
+                delta_x[dof_idx] = (new_q - x0[dof_idx]) * saturation_alpha
+            else:
+                delta_x[dof_idx] = new_q - x0[dof_idx]
 
         te = time.time()
         print("Elapsed time for postprocessing overshoots: ", te - tb)
