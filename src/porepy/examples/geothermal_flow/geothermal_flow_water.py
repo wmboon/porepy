@@ -101,6 +101,7 @@ class GeothermalWaterFlowModel(FlowModel):
         temperature_alpha = newton_increment_constraint(np.linalg.norm(res_g[t_dof_idx]))
         saturation_alpha = newton_increment_constraint(np.linalg.norm(res_g[s_dof_idx]))
         alphas = [enthalpy_alpha,temperature_alpha,saturation_alpha]
+        alphas = [enthalpy_alpha,1.0, 1.0]
         print("Residual constraints: ", alphas)
         self.postprocessing_overshoots(sol, alphas)
         # sol = self.increment_from_projected_solution()
