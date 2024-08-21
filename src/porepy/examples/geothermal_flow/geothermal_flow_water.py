@@ -69,46 +69,107 @@ class GeothermalWaterFlowModel(FlowModel):
         expansion."""
 
         eq_idx_map = self.equation_system.assembled_equation_indices
-        p_dof_idx = eq_idx_map['pressure_equation']
-        z_dof_idx = eq_idx_map['mass_balance_equation_NaCl']
-        h_dof_idx = eq_idx_map['total_energy_balance']
-        t_dof_idx = eq_idx_map['elimination_of_temperature_on_grids_[0]']
-        s_dof_idx = eq_idx_map['elimination_of_s_gas_on_grids_[0]']
+        eq_p_dof_idx = eq_idx_map['pressure_equation']
+        eq_z_dof_idx = eq_idx_map['mass_balance_equation_NaCl']
+        eq_h_dof_idx = eq_idx_map['total_energy_balance']
+        eq_t_dof_idx = eq_idx_map['elimination_of_temperature_on_grids_[0]']
+        eq_s_dof_idx = eq_idx_map['elimination_of_s_gas_on_grids_[0]']
+
+        p_dof_idx = self.equation_system.dofs_of(['pressure'])
+        z_dof_idx = self.equation_system.dofs_of(['z_NaCl'])
+        h_dof_idx = self.equation_system.dofs_of(['enthalpy'])
+        t_dof_idx = self.equation_system.dofs_of(['temperature'])
+        s_dof_idx = self.equation_system.dofs_of(['s_gas'])
 
         tb = time.time()
-        _, res_g = self.linear_system
-        sol = super().solve_linear_system()
+        jac_g, res_g = self.linear_system
+        delta_x = super().solve_linear_system()
         reduce_linear_system_q = self.params.get("reduce_linear_system_q", False)
         if reduce_linear_system_q:
             raise ValueError("Case not implemented yet.")
         te = time.time()
         print("Overall residual norm at x_k: ", np.linalg.norm(res_g))
-        print("Pressure residual norm: ", np.linalg.norm(res_g[p_dof_idx]))
-        print("Composition residual norm: ", np.linalg.norm(res_g[z_dof_idx]))
-        print("Enthalpy residual norm: ", np.linalg.norm(res_g[h_dof_idx]))
-        print("Temperature residual norm: ", np.linalg.norm(res_g[t_dof_idx]))
-        print("Saturation residual norm: ", np.linalg.norm(res_g[s_dof_idx]))
+        print("Pressure residual norm: ", np.linalg.norm(res_g[eq_p_dof_idx]))
+        print("Composition residual norm: ", np.linalg.norm(res_g[eq_z_dof_idx]))
+        print("Enthalpy residual norm: ", np.linalg.norm(res_g[eq_h_dof_idx]))
+        print("Temperature residual norm: ", np.linalg.norm(res_g[eq_t_dof_idx]))
+        print("Saturation residual norm: ", np.linalg.norm(res_g[eq_s_dof_idx]))
         print("Elapsed time linear solve: ", te - tb)
 
-        def newton_increment_constraint(res_norm):
-            if res_norm < 0.001:
-                return 1.0
-            elif 0.001 <= res_norm < np.pi:
-                return 1.0/np.pi
-            elif np.pi <= res_norm < 10.0*np.pi:
-                return 1.0 / res_norm
-            else:
-                return 1.0/10.0*np.pi
-
-        enthalpy_alpha = newton_increment_constraint(np.linalg.norm(res_g[h_dof_idx]))
-        temperature_alpha = newton_increment_constraint(np.linalg.norm(res_g[t_dof_idx]))
-        saturation_alpha = newton_increment_constraint(np.linalg.norm(res_g[s_dof_idx]))
-        alphas = [enthalpy_alpha, temperature_alpha, saturation_alpha]
-        print("Residual constraints: ", alphas)
-        self.postprocessing_overshoots(sol, alphas)
-
+        self.postprocessing_overshoots(delta_x)
         # sol = self.increment_from_projected_solution()
-        return sol
+        return delta_x
+        
+        tb = time.time()
+        x = self.equation_system.get_variable_values(iterate_index=0)
+        # Line search: backtracking to satisfy Armijo condition per field
+
+        dofs_idx = {
+            'p': (eq_p_dof_idx, p_dof_idx),
+            'z': (eq_z_dof_idx, z_dof_idx),
+            'h': (eq_h_dof_idx, h_dof_idx),
+            't': (eq_t_dof_idx, t_dof_idx),
+            's': (eq_s_dof_idx, s_dof_idx),
+        }
+
+        fields_idx = {
+            'p': 0,
+            'z': 1,
+            'h': 2,
+            't': 3,
+            's': 4,
+        }
+
+        eps_tol = 1.0e-4
+        field_to_skip = []
+        for item in fields_idx.items():
+            field_name, field_idx = item
+            eq_idx, _ = dofs_idx[field_name]
+            if np.linalg.norm(res_g[eq_idx]) < eps_tol:
+                field_to_skip.append(field_name)
+        print('No line search performed on the fields: ', field_to_skip)
+        max_searches = 20
+        beta = 0.75  # reduction factor for alpha
+        c = 1.0e-2  # Armijo condition constant
+        alpha = np.ones(5) # initial step size
+        k = 0
+        x_k = np.zeros_like(x)
+        Armijo_condition = np.array([True, True, True, True, True])
+        while np.any(Armijo_condition) and (len(field_to_skip) < 5):
+            for item in fields_idx.items():
+                field_name, field_idx = item
+                if field_name in field_to_skip:
+                    continue
+                _, dof_idx = dofs_idx[field_name]
+                x_k[dof_idx] = x[dof_idx] + alpha[field_idx] * delta_x[dof_idx]
+            # set new state
+            self.equation_system.set_variable_values(
+                values=x_k, additive=False, iterate_index=0
+            )
+            res_g_k = self.equation_system.assemble(evaluate_jacobian=False)
+            for item in fields_idx.items():
+                field_name, field_idx = item
+                if field_name in field_to_skip:
+                    continue
+                eq_idx, dof_idx = dofs_idx[field_name]
+                Armijo_condition[field_idx] = np.any(res_g_k[eq_idx] > np.linalg.norm(res_g[eq_idx]) + c * alpha[field_idx] * np.dot(res_g[eq_idx], delta_x[dof_idx]))
+                if Armijo_condition[field_idx]:
+                    alpha[field_idx] *= beta
+            k+=1
+            if k == max_searches:
+                print("The backtracking line search has reached the maximum number of iterations.")
+                break
+
+        # Scaled the increment per field
+        for item in fields_idx.items():
+            field_name, field_idx = item
+            if field_name in field_to_skip:
+                continue
+            _, dof_idx = dofs_idx[field_name]
+            delta_x[dof_idx] *= alpha[field_idx]
+        te = time.time()
+        print("Elapsed time for backtracking line search: ", te - tb)
+        return delta_x
 
     def load_and_project_reference_data(self):
 
@@ -212,8 +273,8 @@ class GeothermalWaterFlowModel(FlowModel):
         delta_x = x_k - x0
         return delta_x
 
-    def postprocessing_overshoots(self, delta_x, alphas):
-        enthalpy_alpha, temperature_alpha, saturation_alpha = alphas
+    def postprocessing_overshoots(self, delta_x):
+
         zmin, zmax, hmin, hmax, pmin, pmax = self.vtk_sampler.search_space.bounds
         z_scale, h_scale, p_scale = self.vtk_sampler.conversion_factors
         zmin /= z_scale
@@ -257,23 +318,21 @@ class GeothermalWaterFlowModel(FlowModel):
         new_h = delta_x[h_dof_idx] + h_0
         new_h = np.where(new_h < 1.0e-6, 1.0e-6, new_h)
         new_h = np.where(new_h > 4.0, 4.0, new_h)
-        delta_x[h_dof_idx] = (new_h - h_0) * enthalpy_alpha
+        delta_x[h_dof_idx] = (new_h - h_0)
 
         # temperature
         new_t = delta_x[t_dof_idx] + t_0
         new_t = np.where(new_t < 100.0, 100.0, new_t)
         new_t = np.where(new_t > 1273.15, 1273.15, new_t)
-        delta_x[t_dof_idx] = (new_t - t_0) * temperature_alpha
+        delta_x[t_dof_idx] = (new_t - t_0)
 
         # secondary fractions
-        for i, dof_idx in enumerate([s_dof_idx, xw_v_dof_idx, xw_l_dof_idx, xs_v_dof_idx, xs_l_dof_idx]):
+        for dof_idx in [s_dof_idx, xw_v_dof_idx, xw_l_dof_idx, xs_v_dof_idx, xs_l_dof_idx]:
             new_q = delta_x[dof_idx] + x0[dof_idx]
             new_q = np.where(new_q < 0.0, 0.0, new_q)
             new_q = np.where(new_q > 1.0, 1.0, new_q)
-            if i == 0:
-                delta_x[dof_idx] = (new_q - x0[dof_idx]) * saturation_alpha
-            else:
-                delta_x[dof_idx] = new_q - x0[dof_idx]
+            delta_x[dof_idx] = new_q - x0[dof_idx]
+
 
         te = time.time()
         print("Elapsed time for postprocessing overshoots: ", te - tb)
