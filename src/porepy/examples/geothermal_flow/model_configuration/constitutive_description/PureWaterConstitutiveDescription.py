@@ -284,6 +284,14 @@ class SecondaryEquations(SecondaryEquationsMixin):
         dTdz = self.vtk_sampler.sampled_could.point_data["grad_Temperature"][:, 0]
         dTdH = self.vtk_sampler.sampled_could.point_data["grad_Temperature"][:, 1]
         dTdp = self.vtk_sampler.sampled_could.point_data["grad_Temperature"][:, 2]
+
+        # compute beta_l
+        s_l = self.vtk_sampler.sampled_could.point_data["S_l"]
+        rho_l = self.vtk_sampler.sampled_could.point_data["Rho_l"]
+        rho =  self.vtk_sampler.sampled_could.point_data["Rho"]
+        beta_l = s_l * rho_l / rho
+        dTdH += beta_l * (1-beta_l)
+
         dT = np.vstack((dTdp, dTdH, dTdz))
         return T, dT
 
