@@ -12,10 +12,12 @@ from thermo import FlashPureVLS, IAPWS95Liquid, IAPWS95Gas, iapws_constants, iap
 import matplotlib.pyplot as plt
 import porepy as pp
 
-# Pure water and steam - 2Phases - Low pressure gradient and temperature
+# scale
+M_scale = 1.0e-6
+
 day = 86400 #seconds in a day.
 tf = 730000.0 * day # final time [2000 years]
-dt = 7300.0 * day # time step size [2 years]
+dt = 730.0 * day # time step size [2 years]
 time_manager = pp.TimeManager(
     schedule=[0.0, tf],
     dt_init=dt,
@@ -28,9 +30,9 @@ solid_constants = pp.SolidConstants(
     {
         "permeability": 1.0e-15,
         "porosity": 0.1,
-        "thermal_conductivity": 2.0,
+        "thermal_conductivity": 2.0*M_scale,
         "density": 2700.0,
-        "specific_heat_capacity": 880.0,
+        "specific_heat_capacity": 880.0*M_scale,
     }
 )
 material_constants = {"solid": solid_constants}
@@ -42,7 +44,7 @@ params = {
     "prepare_simulation": False,
     "reduce_linear_system_q": False,
     "nl_convergence_tol": np.inf,
-    "nl_convergence_tol_res": 1.0e-4,
+    "nl_convergence_tol_res": 1.0e-5,
     "max_iterations": 400,
 }
 
@@ -97,13 +99,14 @@ class GeothermalWaterFlowModel(FlowModel):
                 return 1.0 / res_norm
             else:
                 return 1.0/10.0*np.pi
+
         enthalpy_alpha = newton_increment_constraint(np.linalg.norm(res_g[h_dof_idx]))
         temperature_alpha = newton_increment_constraint(np.linalg.norm(res_g[t_dof_idx]))
         saturation_alpha = newton_increment_constraint(np.linalg.norm(res_g[s_dof_idx]))
-        alphas = [enthalpy_alpha,temperature_alpha,saturation_alpha]
-        alphas = [enthalpy_alpha,1.0, 1.0]
+        alphas = [enthalpy_alpha, temperature_alpha, saturation_alpha]
         print("Residual constraints: ", alphas)
         self.postprocessing_overshoots(sol, alphas)
+
         # sol = self.increment_from_projected_solution()
         return sol
 
@@ -118,7 +121,6 @@ class GeothermalWaterFlowModel(FlowModel):
         t_data[:, 0] *= 1.0e3
         sl_data[:, 0] *= 1.0e3
 
-        p_data[:, 1] *= 1.0e6
         t_data[:, 1] += 273.15
 
         xc = self.mdg.subdomains()[0].cell_centers.T
@@ -138,7 +140,7 @@ class GeothermalWaterFlowModel(FlowModel):
             b = 1.0
 
             def func(p, s, v):
-                PV = flasher.flash(P=p, VF=v)
+                PV = flasher.flash(P=p*1.0e6, VF=v)
                 assert len(PV.betas_volume) == 2
                 res = s - PV.betas_volume[0]
                 return res
@@ -160,25 +162,16 @@ class GeothermalWaterFlowModel(FlowModel):
         for i, pair in enumerate(zip(p_proj, t_proj)):
             s_v = 1.0 - s_proj[i]
             if np.isclose(s_v, 0.0) or np.isclose(s_v, 1.0):
-                PT = flasher.flash(P=pair[0], T=pair[1])
-                h_data.append(PT.H_mass())
+                PT = flasher.flash(P=pair[0]*1.0e6, T=pair[1])
+                h_data.append(PT.H_mass()*1.0e-6)
             else:
                 vf = bisection(pair[0], s_v)
-                PT = flasher.flash(P=pair[0], VF=vf)
-                h_data.append(PT.H_mass())
+                PT = flasher.flash(P=pair[0]*1.0e6, VF=vf)
+                h_data.append(PT.H_mass()*1.0e-6)
         h_proj = np.array(h_data)
         return p_proj, h_proj, t_proj, s_proj
 
     def increment_from_projected_solution(self):
-
-        # triple point of water
-        T_ref = 273.16
-        P_ref = 611.657
-        # MW_H2O = iapws_constants.MWs[0] * 1.0e-3  # [Kg/mol]
-        liquid = IAPWS95Liquid(T=T_ref, P=P_ref, zs=[1])
-        gas = IAPWS95Gas(T=T_ref, P=P_ref, zs=[1])
-        flasher = FlashPureVLS(iapws_constants, iapws_correlations, gas, [liquid], [])
-
 
         zmin, zmax, hmin, hmax, pmin, pmax = self.vtk_sampler.search_space.bounds
         z_scale, h_scale, p_scale = self.vtk_sampler.conversion_factors
@@ -250,8 +243,8 @@ class GeothermalWaterFlowModel(FlowModel):
         # control overshoots in:
         # pressure
         new_p = delta_x[p_dof_idx] + p_0
-        new_p = np.where(new_p < 0.0, 0.0, new_p)
-        new_p = np.where(new_p > 100.0e6, 100.0e6, new_p)
+        new_p = np.where(new_p < 1.0e-6, 1.0e-6, new_p)
+        new_p = np.where(new_p > 100.0, 100.0, new_p)
         delta_x[p_dof_idx] = new_p - p_0
 
         # composition
@@ -262,8 +255,8 @@ class GeothermalWaterFlowModel(FlowModel):
 
         # enthalpy
         new_h = delta_x[h_dof_idx] + h_0
-        new_h = np.where(new_h < 0.0, 0.0, new_h)
-        new_h = np.where(new_h > 4.0e6, 4.0e6, new_h)
+        new_h = np.where(new_h < 1.0e-6, 1.0e-6, new_h)
+        new_h = np.where(new_h > 4.0, 4.0, new_h)
         delta_x[h_dof_idx] = (new_h - h_0) * enthalpy_alpha
 
         # temperature
@@ -289,23 +282,24 @@ class GeothermalWaterFlowModel(FlowModel):
 # Instance of the computational model
 model = GeothermalWaterFlowModel(params)
 
-parametric_space_ref_level = 0
+parametric_space_ref_level = 2
 file_name_prefix = "model_configuration/constitutive_description/driesner_vtk_files/"
 file_name_phz = (
-    file_name_prefix + "XHP_l" + str(parametric_space_ref_level) + "_modified.vtk"
+    file_name_prefix + "XHP_l" + str(parametric_space_ref_level) + "_modified_low_salt_content.vtk"
 )
 file_name_ptz = (
     file_name_prefix + "XTP_l" + str(parametric_space_ref_level) + "_modified.vtk"
 )
+
 constant_extended_fields = ['S_v', 'S_l', 'S_h', 'Xl', 'Xv']
 brine_sampler_phz = VTKSampler(file_name_phz)
 brine_sampler_phz.constant_extended_fields = constant_extended_fields
-brine_sampler_phz.conversion_factors = (1.0, 1.0e-3, 1.0e-5)  # (z,h,p)
+brine_sampler_phz.conversion_factors = (1.0, 1.0e3, 10.0)  # (z,h,p)
 model.vtk_sampler = brine_sampler_phz
 
 brine_sampler_ptz = VTKSampler(file_name_ptz)
 brine_sampler_ptz.constant_extended_fields = constant_extended_fields
-brine_sampler_ptz.conversion_factors = (1.0, 1.0, 1.0e-5)  # (z,t,p)
+brine_sampler_ptz.conversion_factors = (1.0, 1.0, 10.0)  # (z,t,p)
 brine_sampler_ptz.translation_factors = (0.0, -273.15, 0.0)  # (z,t,p)
 model.vtk_sampler_ptz = brine_sampler_ptz
 
@@ -316,13 +310,12 @@ print("Elapsed time prepare simulation: ", te - tb)
 print("Simulation prepared for total number of DoF: ", model.equation_system.num_dofs())
 print("Mixed-dimensional grid employed: ", model.mdg)
 
-#
 # P_proj, H_proj, T_proj, S_proj = model.load_and_project_reference_data()
 #
 # z_proj = (1.0e-4) * np.ones_like(S_proj)
 # par_points = np.array((z_proj, H_proj, P_proj)).T
 # model.vtk_sampler.sample_at(par_points)
-# H_vtk = model.vtk_sampler.sampled_could.point_data['H']
+# H_vtk = model.vtk_sampler.sampled_could.point_data['H']*1.0e-6
 # T_vtk = model.vtk_sampler.sampled_could.point_data['Temperature']
 # S_vtk = model.vtk_sampler.sampled_could.point_data['S_l']
 #

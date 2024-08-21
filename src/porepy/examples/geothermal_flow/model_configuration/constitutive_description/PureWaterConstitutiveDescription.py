@@ -5,20 +5,22 @@ import numpy as np
 import porepy as pp
 import porepy.compositional as ppc
 from porepy.models.compositional_flow import SecondaryEquationsMixin
-from vtk_sampler import VTKSampler
 
 class LiquidDriesnerCorrelations(ppc.AbstractEoS):
     """ Class implementing the calculation of thermodynamic properties of liquid phases
         using the DriesnerCorrelation
     """
-    _vtk_sampler: 'VTKSampler'  # Type hinting for the private attribute
-    
+
+    @property
+    def M_scale(self):
+        return 1.0e-6
+
     @property
     def vtk_sampler(self):
         return self._vtk_sampler
 
     @vtk_sampler.setter
-    def vtk_sampler(self, vtk_sampler:VTKSampler):
+    def vtk_sampler(self, vtk_sampler):
         self._vtk_sampler = vtk_sampler
 
     def kappa(
@@ -27,7 +29,7 @@ class LiquidDriesnerCorrelations(ppc.AbstractEoS):
     ) -> tuple[np.ndarray, np.ndarray]: # value, jacobian
 
         nc = len(thermodynamic_dependencies[0])
-        vals = (0.5) * np.ones(nc)
+        vals = (0.5) * np.ones(nc) * self.M_scale
         # row-wise storage of derivatives, (4, nc) array
         diffs = np.zeros((len(thermodynamic_dependencies), nc))
         return vals, diffs
@@ -59,18 +61,18 @@ class LiquidDriesnerCorrelations(ppc.AbstractEoS):
         drho = np.vstack((drhodp, drhodH, drhodz))
 
         # specific enthalpy of phase
-        h = self.vtk_sampler.sampled_could.point_data["H_l"]
+        h = self.vtk_sampler.sampled_could.point_data["H_l"] * self.M_scale
         dhdz = self.vtk_sampler.sampled_could.point_data["grad_H_l"][:, 0]
         dhdH = self.vtk_sampler.sampled_could.point_data["grad_H_l"][:, 1]
         dhdp = self.vtk_sampler.sampled_could.point_data["grad_H_l"][:, 2]
-        dh = np.vstack((dhdp, dhdH, dhdz))
+        dh = np.vstack((dhdp, dhdH, dhdz)) * self.M_scale
 
         # dynamic viscosity of phase
-        mu = self.vtk_sampler.sampled_could.point_data["mu_l"]
+        mu = self.vtk_sampler.sampled_could.point_data["mu_l"] * self.M_scale
         dmudz = self.vtk_sampler.sampled_could.point_data["grad_mu_l"][:, 0]
         dmudH = self.vtk_sampler.sampled_could.point_data["grad_mu_l"][:, 1]
         dmudp = self.vtk_sampler.sampled_could.point_data["grad_mu_l"][:, 2]
-        dmu = np.vstack((dmudp, dmudH, dmudz))
+        dmu = np.vstack((dmudp, dmudH, dmudz)) * self.M_scale
 
         # thermal conductivity of phase
         kappa, dkappa = self.kappa(*thermodynamic_input)  # (n,), (3, n) array
@@ -101,6 +103,10 @@ class LiquidDriesnerCorrelations(ppc.AbstractEoS):
 class GasDriesnerCorrelations(ppc.AbstractEoS):
 
     @property
+    def M_scale(self):
+        return 1.0e-6
+
+    @property
     def vtk_sampler(self):
         return self._vtk_sampler
 
@@ -114,7 +120,7 @@ class GasDriesnerCorrelations(ppc.AbstractEoS):
     ) -> tuple[np.ndarray, np.ndarray]:
 
         nc = len(thermodynamic_dependencies[0])
-        vals = (1.0e-2) * np.ones(nc)
+        vals = (1.0e-2) * np.ones(nc) * self.M_scale
         # row-wise storage of derivatives, (4, nc) array
         diffs = np.zeros((len(thermodynamic_dependencies), nc))
         return vals, diffs
@@ -145,18 +151,18 @@ class GasDriesnerCorrelations(ppc.AbstractEoS):
         drho = np.vstack((drhodp, drhodH, drhodz))
 
         # specific enthalpy of phase
-        h = self.vtk_sampler.sampled_could.point_data["H_v"]
+        h = self.vtk_sampler.sampled_could.point_data["H_v"] * self.M_scale
         dhdz = self.vtk_sampler.sampled_could.point_data["grad_H_v"][:, 0]
         dhdH = self.vtk_sampler.sampled_could.point_data["grad_H_v"][:, 1]
         dhdp = self.vtk_sampler.sampled_could.point_data["grad_H_v"][:, 2]
-        dh = np.vstack((dhdp, dhdH, dhdz))
+        dh = np.vstack((dhdp, dhdH, dhdz)) * self.M_scale
 
         # dynamic viscosity of phase
-        mu = self.vtk_sampler.sampled_could.point_data["mu_v"]
+        mu = self.vtk_sampler.sampled_could.point_data["mu_v"] * self.M_scale
         dmudz = self.vtk_sampler.sampled_could.point_data["grad_mu_v"][:, 0]
         dmudH = self.vtk_sampler.sampled_could.point_data["grad_mu_v"][:, 1]
         dmudp = self.vtk_sampler.sampled_could.point_data["grad_mu_v"][:, 2]
-        dmu = np.vstack((dmudp, dmudH, dmudz))
+        dmu = np.vstack((dmudp, dmudH, dmudz)) * self.M_scale
 
         # thermal conductivity of phase
         kappa, dkappa = self.kappa(*thermodynamic_input)  # (n,), (3, n) array
@@ -189,9 +195,6 @@ class FluidMixture(ppc.FluidMixtureMixin):
 
     enthalpy: Callable[[list[pp.Grid]], pp.ad.MixedDimensionalVariable]
     """Provided by :class:`~porepy.models.compositional_flow.VariablesEnergyBalance`."""
-
-    vtk_sampler:VTKSampler
-    """provided by :class:`~model_configuration.DriesnerBrineFlowModel´"""
     
     def get_components(self) -> Sequence[ppc.Component]:
         """Setting H20 as first component in Sequence makes it the reference component.
@@ -284,14 +287,6 @@ class SecondaryEquations(SecondaryEquationsMixin):
         dTdz = self.vtk_sampler.sampled_could.point_data["grad_Temperature"][:, 0]
         dTdH = self.vtk_sampler.sampled_could.point_data["grad_Temperature"][:, 1]
         dTdp = self.vtk_sampler.sampled_could.point_data["grad_Temperature"][:, 2]
-
-        # compute beta_l
-        s_l = self.vtk_sampler.sampled_could.point_data["S_l"]
-        rho_l = self.vtk_sampler.sampled_could.point_data["Rho_l"]
-        rho =  self.vtk_sampler.sampled_could.point_data["Rho"]
-        beta_l = s_l * rho_l / rho
-        dTdH += beta_l * (1-beta_l)
-
         dT = np.vstack((dTdp, dTdH, dTdz))
         return T, dT
 

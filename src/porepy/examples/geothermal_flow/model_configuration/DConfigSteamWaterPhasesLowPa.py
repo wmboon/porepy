@@ -31,8 +31,8 @@ class BoundaryConditions(BoundaryConditionsCF):
     
     def bc_values_pressure(self, boundary_grid: pp.BoundaryGrid) -> np.ndarray:
         inlet_idx, outlet_idx = self.get_inlet_outlet_sides(boundary_grid)
-        p_inlet = 4.0e6
-        p_outlet = 1.0e6
+        p_inlet = 4.0
+        p_outlet = 1.0
         p = p_outlet * np.ones(boundary_grid.num_cells)
         p[inlet_idx] = p_inlet
         p[outlet_idx] = p_outlet
@@ -56,7 +56,7 @@ class BoundaryConditions(BoundaryConditionsCF):
         assert len(p) == len(t) == len(z_NaCl)
         par_points = np.array((z_NaCl, t, p)).T
         self.vtk_sampler_ptz.sample_at(par_points)
-        h = self.vtk_sampler_ptz.sampled_could.point_data['H']
+        h = self.vtk_sampler_ptz.sampled_could.point_data['H'] * 1.0e-6
         return h
 
     def bc_values_overall_fraction(
@@ -81,8 +81,8 @@ class InitialConditions(InitialConditionsCF):
         """Define an initial pressure distribution that varies linearly from
            the inlet to the outlet of the domain.
         """
-        p_inlet = 4.0e6
-        p_outlet = 1.0e6
+        p_inlet = 4.0
+        p_outlet = 1.0
         domain_length = 2000.0 #in m
         cell_centers_x = sd.cell_centers[0]
         pressure_gradient = (p_outlet - p_inlet) / domain_length
@@ -97,7 +97,7 @@ class InitialConditions(InitialConditionsCF):
         assert len(p) == len(t) == len(z_NaCl)
         par_points = np.array((z_NaCl, t, p)).T
         self.vtk_sampler_ptz.sample_at(par_points)
-        h_init = self.vtk_sampler_ptz.sampled_could.point_data['H']
+        h_init = self.vtk_sampler_ptz.sampled_could.point_data['H'] * 1.0e-6
 
         return h_init
     
