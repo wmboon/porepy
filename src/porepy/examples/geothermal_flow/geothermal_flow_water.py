@@ -97,8 +97,120 @@ class GeothermalWaterFlowModel(FlowModel):
         print("Elapsed time linear solve: ", te - tb)
 
         self.postprocessing_overshoots(sol)
-        # self.postprocessing_enthalpy_overshoots(sol)
+        sol = self.increment_from_projected_solution()
         return sol
+
+    def load_and_project_reference_data(self):
+
+        # doi: 10.1111/gfl.12080
+        p_data = np.genfromtxt('pressure_data_fig6A.csv', delimiter=',', skip_header=1)
+        t_data = np.genfromtxt('temperature_data_fig6A.csv', delimiter=',', skip_header=1)
+        sl_data = np.genfromtxt('saturation_liq_data_fig6B.csv', delimiter=',', skip_header=1)
+
+        p_data[:, 0] *= 1.0e3
+        t_data[:, 0] *= 1.0e3
+        sl_data[:, 0] *= 1.0e3
+
+        p_data[:, 1] *= 1.0e6
+        t_data[:, 1] += 273.15
+
+        xc = self.mdg.subdomains()[0].cell_centers.T
+        p_proj = np.interp(xc[:, 0], p_data[:, 0], p_data[:, 1])
+        t_proj = np.interp(xc[:, 0], t_data[:, 0], t_data[:, 1])
+        s_proj = np.interp(xc[:, 0], sl_data[:, 0], sl_data[:, 1])
+
+        # triple point of water
+        T_ref = 273.16
+        P_ref = 611.657
+        liquid = IAPWS95Liquid(T=T_ref, P=P_ref, zs=[1])
+        gas = IAPWS95Gas(T=T_ref, P=P_ref, zs=[1])
+        flasher = FlashPureVLS(iapws_constants, iapws_correlations, gas, [liquid], [])
+
+        def bisection(p, s, tol=1e-8, max_iter=1000):
+            a = 0.0
+            b = 1.0
+
+            def func(p, s, v):
+                PV = flasher.flash(P=p, VF=v)
+                assert len(PV.betas_volume) == 2
+                res = s - PV.betas_volume[0]
+                return res
+
+            if func(p, s, a) * func(p, s, b) >= 0:
+                raise ValueError("f(a) and f(b) must have opposite signs")
+
+            for _ in range(max_iter):
+                c = (a + b) / 2
+                if abs(func(p, s, c)) < tol or (b - a) / 2 < tol:
+                    return c
+                elif func(p, s, c) * func(p, s, a) < 0:
+                    b = c
+                else:
+                    a = c
+            raise RuntimeError("Maximum iterations exceeded")
+
+        h_data = []
+        for i, pair in enumerate(zip(p_proj, t_proj)):
+            s_v = 1.0 - s_proj[i]
+            if np.isclose(s_v, 0.0) or np.isclose(s_v, 1.0):
+                PT = flasher.flash(P=pair[0], T=pair[1])
+                h_data.append(PT.H_mass())
+            else:
+                vf = bisection(pair[0], s_v)
+                PT = flasher.flash(P=pair[0], VF=vf)
+                h_data.append(PT.H_mass())
+        h_proj = np.array(h_data)
+        return p_proj, h_proj, t_proj, s_proj
+
+    def increment_from_projected_solution(self):
+
+        # triple point of water
+        T_ref = 273.16
+        P_ref = 611.657
+        # MW_H2O = iapws_constants.MWs[0] * 1.0e-3  # [Kg/mol]
+        liquid = IAPWS95Liquid(T=T_ref, P=P_ref, zs=[1])
+        gas = IAPWS95Gas(T=T_ref, P=P_ref, zs=[1])
+        flasher = FlashPureVLS(iapws_constants, iapws_correlations, gas, [liquid], [])
+
+
+        zmin, zmax, hmin, hmax, pmin, pmax = self.vtk_sampler.search_space.bounds
+        z_scale, h_scale, p_scale = self.vtk_sampler.conversion_factors
+        zmin /= z_scale
+        zmax /= z_scale
+        hmin /= h_scale
+        hmax /= h_scale
+        pmin /= p_scale
+        pmax /= p_scale
+
+        x0 = self.equation_system.get_variable_values(iterate_index=0)
+        x_k = np.zeros_like(x0)
+
+        p_dof_idx = self.equation_system.dofs_of(['pressure'])
+        z_dof_idx = self.equation_system.dofs_of(['z_NaCl'])
+        h_dof_idx = self.equation_system.dofs_of(['enthalpy'])
+        t_dof_idx = self.equation_system.dofs_of(['temperature'])
+        s_dof_idx = self.equation_system.dofs_of(['s_gas'])
+        xw_v_dof_idx = self.equation_system.dofs_of(['x_H2O_gas'])
+        xw_l_dof_idx = self.equation_system.dofs_of(['x_H2O_liq'])
+        xs_v_dof_idx = self.equation_system.dofs_of(['x_NaCl_gas'])
+        xs_l_dof_idx = self.equation_system.dofs_of(['x_NaCl_liq'])
+
+        # project data
+        p_proj, h_proj, t_proj, s_proj = self.load_and_project_reference_data()
+        z_proj = np.zeros_like(s_proj)
+        x_k[p_dof_idx] = p_proj
+        x_k[z_dof_idx] = z_proj
+        x_k[h_dof_idx] = h_proj
+
+        x_k[t_dof_idx] = t_proj
+        x_k[s_dof_idx] = 1.0 - s_proj
+        x_k[xw_l_dof_idx] = np.ones_like(s_proj) - z_proj
+        x_k[xw_v_dof_idx] = np.ones_like(s_proj) - z_proj
+        x_k[xs_l_dof_idx] = z_proj
+        x_k[xs_v_dof_idx] = z_proj
+
+        delta_x = x_k - x0
+        return delta_x
 
     def postprocessing_overshoots(self, delta_x):
 
@@ -257,70 +369,8 @@ print("Elapsed time prepare simulation: ", te - tb)
 print("Simulation prepared for total number of DoF: ", model.equation_system.num_dofs())
 print("Mixed-dimensional grid employed: ", model.mdg)
 
-
-# def load_and_project_reference_data(model):
-#     # doi: 10.1111/gfl.12080
-#     p_data = np.genfromtxt('pressure_data_fig6A.csv', delimiter=',', skip_header=1)
-#     t_data = np.genfromtxt('temperature_data_fig6A.csv', delimiter=',', skip_header=1)
-#     sl_data = np.genfromtxt('saturation_liq_data_fig6B.csv', delimiter=',', skip_header=1)
 #
-#     p_data[:, 0] *= 1.0e3
-#     t_data[:, 0] *= 1.0e3
-#     sl_data[:, 0] *= 1.0e3
-#
-#     p_data[:, 1] *= 1.0e6
-#     t_data[:, 1] += 273.15
-#
-#     xc = model.mdg.subdomains()[0].cell_centers.T
-#     p_proj = np.interp(xc[:, 0], p_data[:, 0], p_data[:, 1])
-#     t_proj = np.interp(xc[:, 0], t_data[:, 0], t_data[:, 1])
-#     s_proj = np.interp(xc[:, 0], sl_data[:, 0], sl_data[:, 1])
-#
-#     # triple point of water
-#     T_ref = 273.16
-#     P_ref = 611.657
-#     # MW_H2O = iapws_constants.MWs[0] * 1.0e-3  # [Kg/mol]
-#     liquid = IAPWS95Liquid(T=T_ref, P=P_ref, zs=[1])
-#     gas = IAPWS95Gas(T=T_ref, P=P_ref, zs=[1])
-#     flasher = FlashPureVLS(iapws_constants, iapws_correlations, gas, [liquid], [])
-#
-#     def bisection(p, s, tol=1e-8, max_iter=1000):
-#         a = 0.0
-#         b = 1.0
-#
-#         def func(p, s, v):
-#             PV = flasher.flash(P=p, VF=v)
-#             assert len(PV.betas_volume) == 2
-#             res = s - PV.betas_volume[0]
-#             return res
-#
-#         if func(p, s, a) * func(p, s, b) >= 0:
-#             raise ValueError("f(a) and f(b) must have opposite signs")
-#
-#         for _ in range(max_iter):
-#             c = (a + b) / 2
-#             if abs(func(p, s, c)) < tol or (b - a) / 2 < tol:
-#                 return c
-#             elif func(p, s, c) * func(p, s, a) < 0:
-#                 b = c
-#             else:
-#                 a = c
-#         raise RuntimeError("Maximum iterations exceeded")
-#
-#     h_data = []
-#     for i, pair in enumerate(zip(p_proj, t_proj)):
-#         s_v = 1.0 - s_proj[i]
-#         if np.isclose(s_v, 0.0) or np.isclose(s_v, 1.0):
-#             PT = flasher.flash(P=pair[0], T=pair[1])
-#             h_data.append(PT.H_mass())
-#         else:
-#             vf = bisection(pair[0], s_v)
-#             PT = flasher.flash(P=pair[0], VF=vf)
-#             h_data.append(PT.H_mass())
-#     h_proj = np.array(h_data)
-#     return p_proj, h_proj, t_proj, s_proj
-#
-# P_proj, H_proj, T_proj, S_proj = load_and_project_reference_data(model)
+# P_proj, H_proj, T_proj, S_proj = model.load_and_project_reference_data()
 #
 # z_proj = (1.0e-3) * np.ones_like(S_proj)
 # par_points = np.array((z_proj, H_proj, P_proj)).T
