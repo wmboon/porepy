@@ -15,7 +15,7 @@ import porepy as pp
 # Pure water and steam - 2Phases - Low pressure gradient and temperature
 day = 86400 #seconds in a day.
 tf = 730000.0 * day # final time [2000 years]
-dt = 730.0 * day # time step size [2 years]
+dt = 7300.0 * day # time step size [2 years]
 time_manager = pp.TimeManager(
     schedule=[0.0, tf],
     dt_init=dt,
@@ -43,7 +43,7 @@ params = {
     "reduce_linear_system_q": False,
     "nl_convergence_tol": np.inf,
     "nl_convergence_tol_res": 1.0e-4,
-    "max_iterations": 150,
+    "max_iterations": 400,
 }
 
 class GeothermalWaterFlowModel(FlowModel):
@@ -72,10 +72,6 @@ class GeothermalWaterFlowModel(FlowModel):
         h_dof_idx = eq_idx_map['total_energy_balance']
         t_dof_idx = eq_idx_map['elimination_of_temperature_on_grids_[0]']
         s_dof_idx = eq_idx_map['elimination_of_s_gas_on_grids_[0]']
-        xw_v_dof_idx = eq_idx_map['elimination_of_x_H2O_gas_on_grids_[0]']
-        xw_l_dof_idx = eq_idx_map['elimination_of_x_H2O_liq_on_grids_[0]']
-        xs_v_dof_idx = eq_idx_map['elimination_of_x_NaCl_gas_on_grids_[0]']
-        xs_l_dof_idx = eq_idx_map['elimination_of_x_NaCl_liq_on_grids_[0]']
 
         tb = time.time()
         _, res_g = self.linear_system
@@ -90,14 +86,22 @@ class GeothermalWaterFlowModel(FlowModel):
         print("Enthalpy residual norm: ", np.linalg.norm(res_g[h_dof_idx]))
         print("Temperature residual norm: ", np.linalg.norm(res_g[t_dof_idx]))
         print("Saturation residual norm: ", np.linalg.norm(res_g[s_dof_idx]))
-        print("x_H2O_gas residual norm: ", np.linalg.norm(res_g[xw_v_dof_idx]))
-        print("x_H2O_liq residual norm: ", np.linalg.norm(res_g[xw_l_dof_idx]))
-        print("x_NaCl_gas residual norm: ", np.linalg.norm(res_g[xs_v_dof_idx]))
-        print("x_NaCl_liq residual norm: ", np.linalg.norm(res_g[xs_l_dof_idx]))
         print("Elapsed time linear solve: ", te - tb)
 
-        self.postprocessing_overshoots(sol)
-        sol = self.increment_from_projected_solution()
+        def newton_increment_constraint(res_norm):
+            if res_norm < 0.001:
+                return 1.0
+            elif 0.001 <= res_norm < np.pi:
+                return 1.0/np.pi
+            elif np.pi <= res_norm < 10.0*np.pi:
+                return 1.0 / res_norm
+            else:
+                return 1.0/10.0*np.pi
+        enthalpy_alpha = newton_increment_constraint(np.linalg.norm(res_g[h_dof_idx]))
+        print("Enthalpy residual norm and constraint: ",
+              (np.linalg.norm(res_g[h_dof_idx]), enthalpy_alpha))
+        self.postprocessing_overshoots(sol, enthalpy_alpha)
+        # sol = self.increment_from_projected_solution()
         return sol
 
     def load_and_project_reference_data(self):
@@ -212,7 +216,7 @@ class GeothermalWaterFlowModel(FlowModel):
         delta_x = x_k - x0
         return delta_x
 
-    def postprocessing_overshoots(self, delta_x):
+    def postprocessing_overshoots(self, delta_x, enthalpy_alpha):
 
         zmin, zmax, hmin, hmax, pmin, pmax = self.vtk_sampler.search_space.bounds
         z_scale, h_scale, p_scale = self.vtk_sampler.conversion_factors
@@ -257,7 +261,7 @@ class GeothermalWaterFlowModel(FlowModel):
         new_h = delta_x[h_dof_idx] + h_0
         new_h = np.where(new_h < 0.0, 0.0, new_h)
         new_h = np.where(new_h > 4.0e6, 4.0e6, new_h)
-        delta_x[h_dof_idx] = new_h - h_0
+        delta_x[h_dof_idx] = (new_h - h_0) * enthalpy_alpha
 
         # temperature
         new_t = delta_x[t_dof_idx] + t_0
@@ -270,74 +274,11 @@ class GeothermalWaterFlowModel(FlowModel):
             new_q = delta_x[dof_idx] + x0[dof_idx]
             new_q = np.where(new_q < 0.0, 0.0, new_q)
             new_q = np.where(new_q > 1.0, 1.0, new_q)
-            delta_x[dof_idx] = new_q - x0[dof_idx]
+            delta_x[dof_idx] = (new_q - x0[dof_idx])
 
         te = time.time()
         print("Elapsed time for postprocessing overshoots: ", te - tb)
         return
-
-    def postprocessing_enthalpy_overshoots(self, delta_x):
-        x0 = self.equation_system.get_variable_values(iterate_index=0)
-        p_dof_idx = self.equation_system.dofs_of(['pressure'])
-        z_dof_idx = self.equation_system.dofs_of(['z_NaCl'])
-        h_dof_idx = self.equation_system.dofs_of(['enthalpy'])
-        t_dof_idx = self.equation_system.dofs_of(['temperature'])
-        p_0 = x0[p_dof_idx]
-        z_0 = x0[z_dof_idx]
-        h_0 = x0[h_dof_idx]
-        t_0 = x0[t_dof_idx]
-        max_dH = 0.1e6
-
-        dh_overshoots_idx = np.where(np.abs(delta_x[h_dof_idx]) > max_dH)[0]
-        if dh_overshoots_idx.shape[0] > 0:
-            tb = time.time()
-            p0_red = p_0[dh_overshoots_idx]
-            h0_red = h_0[dh_overshoots_idx]
-            z0_red = z_0[dh_overshoots_idx]
-            t = delta_x[t_dof_idx] + t_0
-            t_red = t[dh_overshoots_idx]
-            h, idx = self.bisection_method(p0_red, z0_red, t_red)
-            if idx.shape[0] != 0:
-                dh = h - h0_red[idx]
-                new_dh = np.where(np.abs(delta_x[h_dof_idx][dh_overshoots_idx][idx]) > max_dH, dh, delta_x[h_dof_idx][dh_overshoots_idx][idx])
-                delta_x[h_dof_idx][dh_overshoots_idx][idx] = new_dh
-            te = time.time()
-            print("Elapsed time for bisection enthalpy correction: ", te - tb)
-        return
-
-    def bisection_method(self, p, z, t_target, tol=1e-3, max_iter=200):
-        a = np.zeros_like(t_target)
-        b = 4.0 * np.ones_like(t_target) * 1.0e6
-        f_res = lambda H_val: t_target - self.temperature_function(
-            np.vstack([p, H_val, z]))
-
-        fa_times_fb = f_res(a) * f_res(b)
-        idx = np.where(fa_times_fb < 0.0)[0]
-        if idx.shape[0] == 0:
-            return np.empty_like(a), idx
-        else:
-            if np.any(np.logical_and(fa_times_fb > 0.0, np.isclose(fa_times_fb, 0.0))):
-                print("Bisection:: Some cells are ignored because fa_times_fb > 0.0 is true.")
-
-            f_res = lambda H_val: t_target[idx] - self.temperature_function(
-                np.vstack([p[idx], H_val, z[idx]]))
-            a = a[idx]
-            b = b[idx]
-
-        for it in range(max_iter):
-            c = (a + b) / 2.0
-            f_c = f_res(c)
-
-            if np.all(np.logical_or(np.abs(f_c) < tol, np.abs(b - a) < tol)):
-                return c, idx
-
-            f_a = f_res(a)
-            idx_n = np.where(f_a * f_c < 0)
-            idx_p = np.where(f_a * f_c >= 0)
-            b[idx_n] = c[idx_n]
-            a[idx_p] = c[idx_p]
-
-        raise RuntimeError("Bisection:: Maximum number of iterations reached without convergence.")
 
 # Instance of the computational model
 model = GeothermalWaterFlowModel(params)
@@ -372,7 +313,7 @@ print("Mixed-dimensional grid employed: ", model.mdg)
 #
 # P_proj, H_proj, T_proj, S_proj = model.load_and_project_reference_data()
 #
-# z_proj = (1.0e-3) * np.ones_like(S_proj)
+# z_proj = (1.0e-4) * np.ones_like(S_proj)
 # par_points = np.array((z_proj, H_proj, P_proj)).T
 # model.vtk_sampler.sample_at(par_points)
 # H_vtk = model.vtk_sampler.sampled_could.point_data['H']
@@ -433,3 +374,46 @@ mn = model.darcy_flux(model.mdg.subdomains()).value(model.equation_system)
 inlet_idx, outlet_idx = model.get_inlet_outlet_sides(model.mdg.subdomains()[0])
 print("Inflow values : ", mn[inlet_idx])
 print("Outflow values : ", mn[outlet_idx])
+
+P_num = model.equation_system.get_variable_values(['pressure'],time_step_index=0)
+H_num = model.equation_system.get_variable_values(['enthalpy'],time_step_index=0)
+S_num = 1.0 - model.equation_system.get_variable_values(['s_gas'],time_step_index=0)
+T_num = model.equation_system.get_variable_values(['temperature'],time_step_index=0)
+
+def draw_and_save_comparison_numeric(T_proj,T_num,S_proj,S_num,H_proj,H_num,P_proj,P_num):
+    # plot the data
+    figure_data = {
+        'T': ('pp_temperarure_at_2000_years.png', 'T - Fig. 6A P. WEIS (2014)', 'T - numeric + GEOMAR'),
+        'S': ('pp_liquid_saturation_at_2000_years.png', 's_l - Fig. 6B P. WEIS (2014)', 's_l - numeric + GEOMAR'),
+        'H': ('pp_enthalpy_at_2000_years.png', 'H - Fig. 6A P. WEIS (2014)', 'H - numeric '),
+        'P': ('pp_pressure_at_2000_years.png', 'H - Fig. 6A P. WEIS (2014)', 'P - numeric '),
+    }
+    fields_data = {
+        'T': (T_proj,T_num),
+        'S': (S_proj,S_num),
+        'H': (H_proj,H_num),
+        'P': (P_proj, P_num),
+    }
+
+    xc = model.mdg.subdomains()[0].cell_centers.T
+    cell_vols = model.mdg.subdomains()[0].cell_volumes
+    for item in fields_data.items():
+        field, data = item
+        file_name, label_ref, label_vtk = figure_data[field]
+        x = xc[:, 0]
+        y1 = data[0]
+        y2 = data[1]
+
+        l2_norm = np.linalg.norm((data[0] - data[1])*cell_vols) / np.linalg.norm(data[0] *cell_vols)
+
+        plt.plot(x, y1, label=label_ref)
+        plt.plot(x, y2, label=label_vtk, linestyle='--')
+
+        plt.xlabel('Distance [Km]')
+        plt.title('Relative l2_norm = ' + str(l2_norm))
+        plt.legend()
+        plt.savefig(file_name)
+        plt.clf()
+
+P_proj, H_proj, T_proj, S_proj = model.load_and_project_reference_data()
+draw_and_save_comparison_numeric(T_proj,T_num,S_proj,S_num,H_proj,H_num,P_proj,P_num)
