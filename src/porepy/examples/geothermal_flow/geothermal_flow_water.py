@@ -97,16 +97,17 @@ class GeothermalWaterFlowModel(FlowModel):
         print("Elapsed time linear solve: ", te - tb)
 
         self.postprocessing_overshoots(delta_x)
-        def newton_increment_constraint(res_norm):
-            if res_norm < 0.001:
-                return 1.0
-            elif 0.001 <= res_norm < np.pi:
-                return 1.0/np.pi
-            elif np.pi <= res_norm < 10.0*np.pi:
-                return 1.0 / res_norm
-            else:
-                return 1.0/10.0*np.pi
-        delta_x *= newton_increment_constraint(np.linalg.norm(res_g))
+        self.postprocessing_overshoots_secondary_variables(delta_x, res_g)
+        # def newton_increment_constraint(res_norm):
+        #     if res_norm < 0.001:
+        #         return 1.0
+        #     elif 0.001 <= res_norm < np.pi:
+        #         return 1.0/np.pi
+        #     elif np.pi <= res_norm < 10.0*np.pi:
+        #         return 1.0 / res_norm
+        #     else:
+        #         return 1.0/10.0*np.pi
+        # delta_x *= newton_increment_constraint(np.linalg.norm(res_g))
         # sol = self.increment_from_projected_solution()
         return delta_x
 
@@ -349,6 +350,53 @@ class GeothermalWaterFlowModel(FlowModel):
         print("Elapsed time for postprocessing overshoots: ", te - tb)
         return
 
+    def postprocessing_overshoots_secondary_variables(self, delta_x, res_g):
+
+        eq_idx_map = self.equation_system.assembled_equation_indices
+        eq_p_dof_idx = eq_idx_map['pressure_equation']
+        eq_z_dof_idx = eq_idx_map['mass_balance_equation_NaCl']
+        eq_h_dof_idx = eq_idx_map['total_energy_balance']
+
+        res_tol = 1.0e-2
+        res_p_norm = np.linalg.norm(res_g[eq_p_dof_idx])
+        res_z_norm = np.linalg.norm(res_g[eq_z_dof_idx])
+        res_h_norm = np.linalg.norm(res_g[eq_h_dof_idx])
+        converged_state_Q = np.all(np.array([res_p_norm,res_z_norm,res_h_norm]) < res_tol)
+        if converged_state_Q:
+
+            tb = time.time()
+            x0 = self.equation_system.get_variable_values(iterate_index=0)
+            p_dof_idx = self.equation_system.dofs_of(['pressure'])
+            z_dof_idx = self.equation_system.dofs_of(['z_NaCl'])
+            h_dof_idx = self.equation_system.dofs_of(['enthalpy'])
+            t_dof_idx = self.equation_system.dofs_of(['temperature'])
+            s_dof_idx = self.equation_system.dofs_of(['s_gas'])
+            xw_v_dof_idx = self.equation_system.dofs_of(['x_H2O_gas'])
+            xw_l_dof_idx = self.equation_system.dofs_of(['x_H2O_liq'])
+            xs_v_dof_idx = self.equation_system.dofs_of(['x_NaCl_gas'])
+            xs_l_dof_idx = self.equation_system.dofs_of(['x_NaCl_liq'])
+
+            p_k = delta_x[p_dof_idx] + x0[p_dof_idx]
+            z_k = delta_x[z_dof_idx] + x0[z_dof_idx]
+            h_k = delta_x[h_dof_idx] + x0[h_dof_idx]
+            par_points = np.array((z_k, h_k, p_k)).T
+            self.vtk_sampler.sample_at(par_points)
+            t_k = self.vtk_sampler.sampled_could.point_data['Temperature']
+            s_k = self.vtk_sampler.sampled_could.point_data['S_v']
+            Xv_k = self.vtk_sampler.sampled_could.point_data['Xv']
+            Xl_k = self.vtk_sampler.sampled_could.point_data['Xl']
+
+            # update deltas
+            delta_x[t_dof_idx] = t_k - x0[t_dof_idx]
+            delta_x[s_dof_idx] = s_k - x0[s_dof_idx]
+            delta_x[xw_v_dof_idx] = (1.0 - Xv_k - x0[xw_v_dof_idx])
+            delta_x[xw_l_dof_idx] = (1.0 - Xl_k - x0[xw_l_dof_idx])
+            delta_x[xs_v_dof_idx] = Xv_k - x0[xs_v_dof_idx]
+            delta_x[xs_l_dof_idx] = Xl_k - x0[xs_l_dof_idx]
+            te = time.time()
+            print("Elapsed time for postprocessing overshoots: ", te - tb)
+        return
+
 # Instance of the computational model
 model = GeothermalWaterFlowModel(params)
 
@@ -393,40 +441,40 @@ S_vtk = model.vtk_sampler.sampled_could.point_data['S_l']
 # ds_data = np.linalg.norm(xdata - xdata[0],axis = 1)
 # plt.plot(ds_data, S_proj, label='Saturation along parametric space')
 
-def draw_and_save_comparison(T_proj,T_vtk,S_proj,S_vtk,H_proj,H_vtk):
-    # plot the data
-    figure_data = {
-        'T': ('temperarure_at_2000_years.png', 'T - Fig. 6A P. WEIS (2014)', 'T - VTKsample + GEOMAR'),
-        'S': ('liquid_saturation_at_2000_years.png', 's_l - Fig. 6B P. WEIS (2014)', 's_l - VTKsample + GEOMAR'),
-        'H': ('enthalpy_at_2000_years.png', 'H - Fig. 6A P. WEIS (2014)', 'H - VTKsample + GEOMAR'),
-    }
-    fields_data = {
-        'T': (T_proj,T_vtk),
-        'S': (S_proj,S_vtk),
-        'H': (H_proj,H_vtk),
-    }
-
-    xc = model.mdg.subdomains()[0].cell_centers.T
-    cell_vols = model.mdg.subdomains()[0].cell_volumes
-    for item in fields_data.items():
-        field, data = item
-        file_name, label_ref, label_vtk = figure_data[field]
-        x = xc[:, 0]
-        y1 = data[0]
-        y2 = data[1]
-
-        l2_norm = np.linalg.norm((data[0] - data[1])*cell_vols) / np.linalg.norm(data[0] *cell_vols)
-
-        plt.plot(x, y1, label=label_ref)
-        plt.plot(x, y2, label=label_vtk, linestyle='--')
-
-        plt.xlabel('Distance [Km]')
-        plt.title('Relative l2_norm = ' + str(l2_norm))
-        plt.legend()
-        plt.savefig(file_name)
-        plt.clf()
-
-draw_and_save_comparison(T_proj,T_vtk,S_proj,S_vtk,H_proj,H_vtk)
+# def draw_and_save_comparison(T_proj,T_vtk,S_proj,S_vtk,H_proj,H_vtk):
+#     # plot the data
+#     figure_data = {
+#         'T': ('temperarure_at_2000_years.png', 'T - Fig. 6A P. WEIS (2014)', 'T - VTKsample + GEOMAR'),
+#         'S': ('liquid_saturation_at_2000_years.png', 's_l - Fig. 6B P. WEIS (2014)', 's_l - VTKsample + GEOMAR'),
+#         'H': ('enthalpy_at_2000_years.png', 'H - Fig. 6A P. WEIS (2014)', 'H - VTKsample + GEOMAR'),
+#     }
+#     fields_data = {
+#         'T': (T_proj,T_vtk),
+#         'S': (S_proj,S_vtk),
+#         'H': (H_proj,H_vtk),
+#     }
+#
+#     xc = model.mdg.subdomains()[0].cell_centers.T
+#     cell_vols = model.mdg.subdomains()[0].cell_volumes
+#     for item in fields_data.items():
+#         field, data = item
+#         file_name, label_ref, label_vtk = figure_data[field]
+#         x = xc[:, 0]
+#         y1 = data[0]
+#         y2 = data[1]
+#
+#         l2_norm = np.linalg.norm((data[0] - data[1])*cell_vols) / np.linalg.norm(data[0] *cell_vols)
+#
+#         plt.plot(x, y1, label=label_ref)
+#         plt.plot(x, y2, label=label_vtk, linestyle='--')
+#
+#         plt.xlabel('Distance [Km]')
+#         plt.title('Relative l2_norm = ' + str(l2_norm))
+#         plt.legend()
+#         plt.savefig(file_name)
+#         plt.clf()
+#
+# draw_and_save_comparison(T_proj,T_vtk,S_proj,S_vtk,H_proj,H_vtk)
 
 # print geometry
 model.exporter.write_vtu()
