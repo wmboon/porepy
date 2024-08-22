@@ -97,7 +97,7 @@ class GeothermalWaterFlowModel(FlowModel):
         print("Elapsed time linear solve: ", te - tb)
 
         self.postprocessing_overshoots(delta_x)
-        self.postprocessing_overshoots_secondary_variables(delta_x, res_g)
+        self.postprocessing_secondary_variables_increments(delta_x, res_g)
         # def newton_increment_constraint(res_norm):
         #     if res_norm < 0.001:
         #         return 1.0
@@ -350,14 +350,14 @@ class GeothermalWaterFlowModel(FlowModel):
         print("Elapsed time for postprocessing overshoots: ", te - tb)
         return
 
-    def postprocessing_overshoots_secondary_variables(self, delta_x, res_g):
+    def postprocessing_secondary_variables_increments(self, delta_x, res_g):
 
         eq_idx_map = self.equation_system.assembled_equation_indices
         eq_p_dof_idx = eq_idx_map['pressure_equation']
         eq_z_dof_idx = eq_idx_map['mass_balance_equation_NaCl']
         eq_h_dof_idx = eq_idx_map['total_energy_balance']
 
-        res_tol = 1.0e-2
+        res_tol = 10.0 * self.params['nl_convergence_tol_res']
         res_p_norm = np.linalg.norm(res_g[eq_p_dof_idx])
         res_z_norm = np.linalg.norm(res_g[eq_z_dof_idx])
         res_h_norm = np.linalg.norm(res_g[eq_h_dof_idx])
@@ -394,7 +394,7 @@ class GeothermalWaterFlowModel(FlowModel):
             delta_x[xs_v_dof_idx] = Xv_k - x0[xs_v_dof_idx]
             delta_x[xs_l_dof_idx] = Xl_k - x0[xs_l_dof_idx]
             te = time.time()
-            print("Elapsed time for postprocessing overshoots: ", te - tb)
+            print("Elapsed time for postprocessing secondary increments: ", te - tb)
         return
 
 # Instance of the computational model
