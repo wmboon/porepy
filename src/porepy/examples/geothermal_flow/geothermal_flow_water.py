@@ -357,11 +357,27 @@ class GeothermalWaterFlowModel(FlowModel):
         eq_z_dof_idx = eq_idx_map['mass_balance_equation_NaCl']
         eq_h_dof_idx = eq_idx_map['total_energy_balance']
 
-        res_tol = 10.0 * self.params['nl_convergence_tol_res']
+        eq_t_dof_idx = eq_idx_map['elimination_of_temperature_on_grids_[0]']
+        eq_s_dof_idx = eq_idx_map['elimination_of_s_gas_on_grids_[0]']
+        eq_xw_v_dof_idx = self.equation_system.dofs_of(['elimination_of_x_H2O_gas_on_grids_[0]'])
+        eq_xw_l_dof_idx = self.equation_system.dofs_of(['elimination_of_x_H2O_liq_on_grids_[0]'])
+        eq_xs_v_dof_idx = self.equation_system.dofs_of(['elimination_of_x_NaCl_liq_on_grids_[0]'])
+        eq_xs_l_dof_idx = self.equation_system.dofs_of(['elimination_of_x_NaCl_gas_on_grids_[0]'])
+
+
+        res_tol = 100.0 * self.params['nl_convergence_tol_res']
         res_p_norm = np.linalg.norm(res_g[eq_p_dof_idx])
         res_z_norm = np.linalg.norm(res_g[eq_z_dof_idx])
         res_h_norm = np.linalg.norm(res_g[eq_h_dof_idx])
         converged_state_Q = np.all(np.array([res_p_norm,res_z_norm,res_h_norm]) < res_tol)
+
+        res_t_norm = np.linalg.norm(res_g[eq_t_dof_idx])
+        res_s_norm = np.linalg.norm(res_g[eq_s_dof_idx])
+        res_xw_v_norm = np.linalg.norm(res_g[eq_xw_v_dof_idx])
+        res_xw_l_norm = np.linalg.norm(res_g[eq_xw_l_dof_idx])
+        res_xs_v_norm = np.linalg.norm(res_g[eq_xs_v_dof_idx])
+        res_xs_l_norm = np.linalg.norm(res_g[eq_xs_l_dof_idx])
+        secondary_converged_states = np.array([res_t_norm, res_s_norm, res_xw_v_norm,res_xw_l_norm,res_xs_v_norm,res_xs_l_norm]) < res_tol
         if converged_state_Q:
 
             tb = time.time()
@@ -383,16 +399,27 @@ class GeothermalWaterFlowModel(FlowModel):
             self.vtk_sampler.sample_at(par_points)
             t_k = self.vtk_sampler.sampled_could.point_data['Temperature']
             s_k = self.vtk_sampler.sampled_could.point_data['S_v']
-            Xv_k = self.vtk_sampler.sampled_could.point_data['Xv']
-            Xl_k = self.vtk_sampler.sampled_could.point_data['Xl']
+            Xw_v_k = 1.0 - self.vtk_sampler.sampled_could.point_data['Xv']
+            Xw_l_k = 1.0 - self.vtk_sampler.sampled_could.point_data['Xl']
+            Xs_v_k = self.vtk_sampler.sampled_could.point_data['Xv']
+            Xs_l_k = self.vtk_sampler.sampled_could.point_data['Xl']
 
+            delta_t = t_k - x0[t_dof_idx]
+            delta_s = s_k - x0[s_dof_idx]
+            delta_Xw_v = Xw_v_k - x0[xw_v_dof_idx]
+            delta_Xw_l = Xw_l_k - x0[xw_l_dof_idx]
+            delta_Xs_v = Xs_v_k - x0[xs_v_dof_idx]
+            delta_Xs_l = Xs_l_k - x0[xs_l_dof_idx]
+
+            deltas = [delta_t,delta_s,delta_Xw_v,delta_Xw_l,delta_Xs_v,delta_Xs_l]
+            dofs_idx = [t_dof_idx,s_dof_idx,xw_v_dof_idx,xw_l_dof_idx,xs_v_dof_idx,xs_l_dof_idx]
             # update deltas
-            delta_x[t_dof_idx] = t_k - x0[t_dof_idx]
-            delta_x[s_dof_idx] = s_k - x0[s_dof_idx]
-            delta_x[xw_v_dof_idx] = (1.0 - Xv_k - x0[xw_v_dof_idx])
-            delta_x[xw_l_dof_idx] = (1.0 - Xl_k - x0[xw_l_dof_idx])
-            delta_x[xs_v_dof_idx] = Xv_k - x0[xs_v_dof_idx]
-            delta_x[xs_l_dof_idx] = Xl_k - x0[xs_l_dof_idx]
+            for k_field, conv_state in enumerate(secondary_converged_states):
+                if conv_state:
+                    continue
+                delta = deltas[k_field]
+                dof_idx = dofs_idx[k_field]
+                delta_x[dof_idx] = delta
             te = time.time()
             print("Elapsed time for postprocessing secondary increments: ", te - tb)
         return
