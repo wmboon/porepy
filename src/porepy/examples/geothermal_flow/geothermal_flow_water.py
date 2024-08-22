@@ -17,7 +17,7 @@ M_scale = 1.0e-6
 
 day = 86400 #seconds in a day.
 tf = 730000.0 * day # final time [2000 years]
-dt = 730.0 * day # time step size [2 years]
+dt = 7300.0 * day # time step size [2 years]
 time_manager = pp.TimeManager(
     schedule=[0.0, tf],
     dt_init=dt,
@@ -44,7 +44,7 @@ params = {
     "prepare_simulation": False,
     "reduce_linear_system_q": False,
     "nl_convergence_tol": np.inf,
-    "nl_convergence_tol_res": 1.0e-4,
+    "nl_convergence_tol_res": 1.0e-3,
     "max_iterations": 100,
 }
 
