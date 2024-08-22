@@ -364,12 +364,12 @@ class GeothermalWaterFlowModel(FlowModel):
         eq_xs_v_dof_idx = self.equation_system.dofs_of(['elimination_of_x_NaCl_liq_on_grids_[0]'])
         eq_xs_l_dof_idx = self.equation_system.dofs_of(['elimination_of_x_NaCl_gas_on_grids_[0]'])
 
-
         res_tol = self.params['nl_convergence_tol_res']
         res_p_norm = np.linalg.norm(res_g[eq_p_dof_idx])
         res_z_norm = np.linalg.norm(res_g[eq_z_dof_idx])
         res_h_norm = np.linalg.norm(res_g[eq_h_dof_idx])
         converged_state_Q = np.all(np.array([res_p_norm,res_z_norm,res_h_norm]) < 10.0 * res_tol)
+        print('converged_state_Q: ', converged_state_Q)
 
         res_t_norm = np.linalg.norm(res_g[eq_t_dof_idx])
         res_s_norm = np.linalg.norm(res_g[eq_s_dof_idx])
