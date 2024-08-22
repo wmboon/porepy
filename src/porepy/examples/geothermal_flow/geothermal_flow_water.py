@@ -352,7 +352,7 @@ class GeothermalWaterFlowModel(FlowModel):
 # Instance of the computational model
 model = GeothermalWaterFlowModel(params)
 
-parametric_space_ref_level = 2
+parametric_space_ref_level = 0
 file_name_prefix = "model_configuration/constitutive_description/driesner_vtk_files/"
 file_name_phz = (
     file_name_prefix + "XHP_l" + str(parametric_space_ref_level) + "_modified_low_salt_content.vtk"
@@ -380,49 +380,53 @@ print("Elapsed time prepare simulation: ", te - tb)
 print("Simulation prepared for total number of DoF: ", model.equation_system.num_dofs())
 print("Mixed-dimensional grid employed: ", model.mdg)
 
-# P_proj, H_proj, T_proj, S_proj = model.load_and_project_reference_data()
-#
-# z_proj = (1.0e-4) * np.ones_like(S_proj)
-# par_points = np.array((z_proj, H_proj, P_proj)).T
-# model.vtk_sampler.sample_at(par_points)
-# H_vtk = model.vtk_sampler.sampled_could.point_data['H']*1.0e-6
-# T_vtk = model.vtk_sampler.sampled_could.point_data['Temperature']
-# S_vtk = model.vtk_sampler.sampled_could.point_data['S_l']
-#
-# def draw_and_save_comparison(T_proj,T_vtk,S_proj,S_vtk,H_proj,H_vtk):
-#     # plot the data
-#     figure_data = {
-#         'T': ('temperarure_at_2000_years.png', 'T - Fig. 6A P. WEIS (2014)', 'T - VTKsample + GEOMAR'),
-#         'S': ('liquid_saturation_at_2000_years.png', 's_l - Fig. 6B P. WEIS (2014)', 's_l - VTKsample + GEOMAR'),
-#         'H': ('enthalpy_at_2000_years.png', 'H - Fig. 6A P. WEIS (2014)', 'H - VTKsample + GEOMAR'),
-#     }
-#     fields_data = {
-#         'T': (T_proj,T_vtk),
-#         'S': (S_proj,S_vtk),
-#         'H': (H_proj,H_vtk),
-#     }
-#
-#     xc = model.mdg.subdomains()[0].cell_centers.T
-#     cell_vols = model.mdg.subdomains()[0].cell_volumes
-#     for item in fields_data.items():
-#         field, data = item
-#         file_name, label_ref, label_vtk = figure_data[field]
-#         x = xc[:, 0]
-#         y1 = data[0]
-#         y2 = data[1]
-#
-#         l2_norm = np.linalg.norm((data[0] - data[1])*cell_vols) / np.linalg.norm(data[0] *cell_vols)
-#
-#         plt.plot(x, y1, label=label_ref)
-#         plt.plot(x, y2, label=label_vtk, linestyle='--')
-#
-#         plt.xlabel('Distance [Km]')
-#         plt.title('Relative l2_norm = ' + str(l2_norm))
-#         plt.legend()
-#         plt.savefig(file_name)
-#         plt.clf()
-#
-# draw_and_save_comparison(T_proj,T_vtk,S_proj,S_vtk,H_proj,H_vtk)
+P_proj, H_proj, T_proj, S_proj = model.load_and_project_reference_data()
+
+z_proj = (1.0e-4) * np.ones_like(S_proj)
+par_points = np.array((z_proj, H_proj, P_proj)).T
+model.vtk_sampler.sample_at(par_points)
+H_vtk = model.vtk_sampler.sampled_could.point_data['H']*1.0e-6
+T_vtk = model.vtk_sampler.sampled_could.point_data['Temperature']
+S_vtk = model.vtk_sampler.sampled_could.point_data['S_l']
+
+# xdata = np.array((H_proj,P_proj)).T
+# ds_data = np.linalg.norm(xdata - xdata[0],axis = 1)
+# plt.plot(ds_data, S_proj, label='Saturation along parametric space')
+
+def draw_and_save_comparison(T_proj,T_vtk,S_proj,S_vtk,H_proj,H_vtk):
+    # plot the data
+    figure_data = {
+        'T': ('temperarure_at_2000_years.png', 'T - Fig. 6A P. WEIS (2014)', 'T - VTKsample + GEOMAR'),
+        'S': ('liquid_saturation_at_2000_years.png', 's_l - Fig. 6B P. WEIS (2014)', 's_l - VTKsample + GEOMAR'),
+        'H': ('enthalpy_at_2000_years.png', 'H - Fig. 6A P. WEIS (2014)', 'H - VTKsample + GEOMAR'),
+    }
+    fields_data = {
+        'T': (T_proj,T_vtk),
+        'S': (S_proj,S_vtk),
+        'H': (H_proj,H_vtk),
+    }
+
+    xc = model.mdg.subdomains()[0].cell_centers.T
+    cell_vols = model.mdg.subdomains()[0].cell_volumes
+    for item in fields_data.items():
+        field, data = item
+        file_name, label_ref, label_vtk = figure_data[field]
+        x = xc[:, 0]
+        y1 = data[0]
+        y2 = data[1]
+
+        l2_norm = np.linalg.norm((data[0] - data[1])*cell_vols) / np.linalg.norm(data[0] *cell_vols)
+
+        plt.plot(x, y1, label=label_ref)
+        plt.plot(x, y2, label=label_vtk, linestyle='--')
+
+        plt.xlabel('Distance [Km]')
+        plt.title('Relative l2_norm = ' + str(l2_norm))
+        plt.legend()
+        plt.savefig(file_name)
+        plt.clf()
+
+draw_and_save_comparison(T_proj,T_vtk,S_proj,S_vtk,H_proj,H_vtk)
 
 # print geometry
 model.exporter.write_vtu()

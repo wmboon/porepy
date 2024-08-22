@@ -29,7 +29,8 @@ class LiquidDriesnerCorrelations(ppc.AbstractEoS):
     ) -> tuple[np.ndarray, np.ndarray]: # value, jacobian
 
         nc = len(thermodynamic_dependencies[0])
-        vals = (0.5) * np.ones(nc) * self.M_scale
+        # vals = 0.5 * np.ones(nc) * self.M_scale
+        vals = 2.0 * np.ones(nc) * self.M_scale
         # row-wise storage of derivatives, (4, nc) array
         diffs = np.zeros((len(thermodynamic_dependencies), nc))
         return vals, diffs
@@ -120,7 +121,8 @@ class GasDriesnerCorrelations(ppc.AbstractEoS):
     ) -> tuple[np.ndarray, np.ndarray]:
 
         nc = len(thermodynamic_dependencies[0])
-        vals = (1.0e-2) * np.ones(nc) * self.M_scale
+        # vals = (1.0e-2) * np.ones(nc) * self.M_scale
+        vals = 2.0 * np.ones(nc) * self.M_scale
         # row-wise storage of derivatives, (4, nc) array
         diffs = np.zeros((len(thermodynamic_dependencies), nc))
         return vals, diffs
