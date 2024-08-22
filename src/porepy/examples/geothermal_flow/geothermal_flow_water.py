@@ -368,7 +368,7 @@ class GeothermalWaterFlowModel(FlowModel):
         res_p_norm = np.linalg.norm(res_g[eq_p_dof_idx])
         res_z_norm = np.linalg.norm(res_g[eq_z_dof_idx])
         res_h_norm = np.linalg.norm(res_g[eq_h_dof_idx])
-        converged_state_Q = np.all(np.array([res_p_norm,res_z_norm,res_h_norm]) < 10.0 * res_tol)
+        converged_state_Q = np.all(np.array([res_p_norm,res_z_norm,res_h_norm]) < res_tol)
         print('converged_state_Q: ', converged_state_Q)
 
         res_t_norm = np.linalg.norm(res_g[eq_t_dof_idx])
