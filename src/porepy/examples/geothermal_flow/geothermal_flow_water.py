@@ -45,7 +45,7 @@ params = {
     "reduce_linear_system_q": False,
     "nl_convergence_tol": np.inf,
     "nl_convergence_tol_res": 1.0e-3,
-    "max_iterations": 100,
+    "max_iterations": 200,
 }
 
 class GeothermalWaterFlowModel(FlowModel):
@@ -377,7 +377,8 @@ class GeothermalWaterFlowModel(FlowModel):
         res_xw_l_norm = np.linalg.norm(res_g[eq_xw_l_dof_idx])
         res_xs_v_norm = np.linalg.norm(res_g[eq_xs_v_dof_idx])
         res_xs_l_norm = np.linalg.norm(res_g[eq_xs_l_dof_idx])
-        secondary_converged_states = np.array([res_t_norm, res_s_norm, res_xw_v_norm,res_xw_l_norm,res_xs_v_norm,res_xs_l_norm]) < res_tol
+        secondary_residuals = [res_t_norm, res_s_norm, res_xw_v_norm,res_xw_l_norm,res_xs_v_norm,res_xs_l_norm]
+        secondary_converged_states = np.array(secondary_residuals) < res_tol
         if converged_state_Q:
 
             tb = time.time()
@@ -411,6 +412,16 @@ class GeothermalWaterFlowModel(FlowModel):
             delta_Xs_v = Xs_v_k - x0[xs_v_dof_idx]
             delta_Xs_l = Xs_l_k - x0[xs_l_dof_idx]
 
+            def newton_increment_constraint(res_norm):
+                if res_norm < 0.01:
+                    return 1.0
+                elif 0.01 <= res_norm < np.pi:
+                    return 1.0/np.pi
+                elif np.pi <= res_norm < 10.0*np.pi:
+                    return 1.0 / res_norm
+                else:
+                    return 1.0/10.0*np.pi
+
             deltas = [delta_t,delta_s,delta_Xw_v,delta_Xw_l,delta_Xs_v,delta_Xs_l]
             dofs_idx = [t_dof_idx,s_dof_idx,xw_v_dof_idx,xw_l_dof_idx,xs_v_dof_idx,xs_l_dof_idx]
             # update deltas
@@ -419,7 +430,8 @@ class GeothermalWaterFlowModel(FlowModel):
                     continue
                 delta = deltas[k_field]
                 dof_idx = dofs_idx[k_field]
-                delta_x[dof_idx] = 0.1 * delta
+                alpha_scale = newton_increment_constraint(secondary_residuals[k_field])
+                delta_x[dof_idx] = delta * alpha_scale
             te = time.time()
             print("Elapsed time for postprocessing secondary increments: ", te - tb)
         return
