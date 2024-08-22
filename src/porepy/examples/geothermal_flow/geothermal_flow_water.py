@@ -419,7 +419,7 @@ class GeothermalWaterFlowModel(FlowModel):
                     continue
                 delta = deltas[k_field]
                 dof_idx = dofs_idx[k_field]
-                delta_x[dof_idx] = delta
+                delta_x[dof_idx] = delta * (1.0/np.pi)
             te = time.time()
             print("Elapsed time for postprocessing secondary increments: ", te - tb)
         return
