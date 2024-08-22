@@ -97,9 +97,19 @@ class GeothermalWaterFlowModel(FlowModel):
         print("Elapsed time linear solve: ", te - tb)
 
         self.postprocessing_overshoots(delta_x)
+        def newton_increment_constraint(res_norm):
+            if res_norm < 0.001:
+                return 1.0
+            elif 0.001 <= res_norm < np.pi:
+                return 1.0/np.pi
+            elif np.pi <= res_norm < 10.0*np.pi:
+                return 1.0 / res_norm
+            else:
+                return 1.0/10.0*np.pi
+        delta_x *= newton_increment_constraint(np.linalg.norm(res_g))
         # sol = self.increment_from_projected_solution()
         return delta_x
-        
+
         tb = time.time()
         x = self.equation_system.get_variable_values(iterate_index=0)
         # Line search: backtracking to satisfy Armijo condition per field
@@ -128,12 +138,12 @@ class GeothermalWaterFlowModel(FlowModel):
             if np.linalg.norm(res_g[eq_idx]) < eps_tol:
                 field_to_skip.append(field_name)
         print('No line search performed on the fields: ', field_to_skip)
-        max_searches = 20
+        max_searches = 10
         beta = 0.75  # reduction factor for alpha
         c = 1.0e-2  # Armijo condition constant
         alpha = np.ones(5) # initial step size
         k = 0
-        x_k = np.zeros_like(x)
+        x_k = x + delta_x
         Armijo_condition = np.array([True, True, True, True, True])
         while np.any(Armijo_condition) and (len(field_to_skip) < 5):
             for item in fields_idx.items():
@@ -143,16 +153,17 @@ class GeothermalWaterFlowModel(FlowModel):
                 _, dof_idx = dofs_idx[field_name]
                 x_k[dof_idx] = x[dof_idx] + alpha[field_idx] * delta_x[dof_idx]
             # set new state
-            self.equation_system.set_variable_values(
-                values=x_k, additive=False, iterate_index=0
-            )
+            self.equation_system.set_variable_values(values=x_k, iterate_index=0)
+            self.update_all_constitutive_expressions()
             res_g_k = self.equation_system.assemble(evaluate_jacobian=False)
             for item in fields_idx.items():
                 field_name, field_idx = item
                 if field_name in field_to_skip:
                     continue
                 eq_idx, dof_idx = dofs_idx[field_name]
-                Armijo_condition[field_idx] = np.any(res_g_k[eq_idx] > np.linalg.norm(res_g[eq_idx]) + c * alpha[field_idx] * np.dot(res_g[eq_idx], delta_x[dof_idx]))
+                # Armijo_condition[field_idx] = np.any(res_g_k[eq_idx] > np.linalg.norm(res_g[eq_idx]) + c * alpha[field_idx] * np.dot(res_g[eq_idx], delta_x[dof_idx]))
+                Armijo_condition[field_idx] = np.any(
+                    res_g_k > np.linalg.norm(res_g) + c * np.mean(alpha) * np.dot(res_g, delta_x))
                 if Armijo_condition[field_idx]:
                     alpha[field_idx] *= beta
             k+=1
