@@ -2854,6 +2854,12 @@ class SolutionStrategyCF(
         # After updating the fluid properties, update discretizations
         self.update_discretizations()
 
+    def after_nonlinear_iteration(self, nonlinear_increment: np.ndarray) -> None:
+        super().after_nonlinear_iteration(nonlinear_increment)
+        self.update_secondary_quantities()
+        # After updating the fluid properties, update discretizations
+        self.update_discretizations()
+
     def after_nonlinear_convergence(self, iteration_counter: int) -> None:
         """Calls :meth:`progress_thermodynamic_properties_in_time` at the end."""
         super().after_nonlinear_convergence(iteration_counter)
