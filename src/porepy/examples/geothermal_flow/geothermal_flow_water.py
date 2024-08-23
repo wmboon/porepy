@@ -17,7 +17,7 @@ M_scale = 1.0e-6
 
 day = 86400 #seconds in a day.
 tf = 730000.0 * day # final time [2000 years]
-dt = 7300.0 * day # time step size [2 years]
+dt = 73000.0 * day # time step size [2 years]
 time_manager = pp.TimeManager(
     schedule=[0.0, tf],
     dt_init=dt,
@@ -88,6 +88,17 @@ class GeothermalWaterFlowModel(FlowModel):
         if reduce_linear_system_q:
             raise ValueError("Case not implemented yet.")
         te = time.time()
+
+        # project_sol_Q = False
+        # if project_sol_Q:
+        #     delta_x = self.increment_from_projected_solution()
+            # x0 = self.equation_system.get_variable_values(iterate_index=0)
+            # x_proj = delta_x + x0
+            # self.equation_system.set_variable_values(values=x_proj, iterate_index=0)
+            # self.update_all_constitutive_expressions()
+            # jac_g , res_g = self.equation_system.assemble(evaluate_jacobian=True)
+            # self.linear_system = (jac_g , res_g)
+
         print("Overall residual norm at x_k: ", np.linalg.norm(res_g))
         print("Pressure residual norm: ", np.linalg.norm(res_g[eq_p_dof_idx]))
         print("Composition residual norm: ", np.linalg.norm(res_g[eq_z_dof_idx]))
@@ -109,10 +120,10 @@ class GeothermalWaterFlowModel(FlowModel):
         #         return 1.0/10.0*np.pi
         # delta_x *= newton_increment_constraint(np.linalg.norm(res_g))
         # sol = self.increment_from_projected_solution()
-        return delta_x
+        # return delta_x
 
         tb = time.time()
-        x = self.equation_system.get_variable_values(iterate_index=0)
+        x = self.equation_system.get_variable_values(iterate_index=0).copy()
         # Line search: backtracking to satisfy Armijo condition per field
 
         dofs_idx = {
@@ -139,8 +150,8 @@ class GeothermalWaterFlowModel(FlowModel):
             if np.linalg.norm(res_g[eq_idx]) < eps_tol:
                 field_to_skip.append(field_name)
         print('No line search performed on the fields: ', field_to_skip)
-        max_searches = 10
-        beta = 0.75  # reduction factor for alpha
+        max_searches = 15
+        beta = 0.5  # reduction factor for alpha
         c = 1.0e-2  # Armijo condition constant
         alpha = np.ones(5) # initial step size
         k = 0
@@ -162,9 +173,8 @@ class GeothermalWaterFlowModel(FlowModel):
                 if field_name in field_to_skip:
                     continue
                 eq_idx, dof_idx = dofs_idx[field_name]
-                # Armijo_condition[field_idx] = np.any(res_g_k[eq_idx] > np.linalg.norm(res_g[eq_idx]) + c * alpha[field_idx] * np.dot(res_g[eq_idx], delta_x[dof_idx]))
-                Armijo_condition[field_idx] = np.any(
-                    res_g_k > np.linalg.norm(res_g) + c * np.mean(alpha) * np.dot(res_g, delta_x))
+                Armijo_condition[field_idx] = np.any(res_g_k[eq_idx] > np.linalg.norm(res_g[eq_idx]) + c * alpha[field_idx] * np.dot(res_g[eq_idx], delta_x[dof_idx]))
+                # Armijo_condition[field_idx] = np.any(res_g_k > np.linalg.norm(res_g) + c * np.mean(alpha) * np.dot(res_g, delta_x))
                 if Armijo_condition[field_idx]:
                     alpha[field_idx] *= beta
             k+=1
@@ -179,8 +189,10 @@ class GeothermalWaterFlowModel(FlowModel):
                 continue
             _, dof_idx = dofs_idx[field_name]
             delta_x[dof_idx] *= alpha[field_idx]
+        self.equation_system.set_variable_values(values=x, iterate_index=0)
         te = time.time()
         print("Elapsed time for backtracking line search: ", te - tb)
+        # self.postprocessing_secondary_variables_increments(delta_x, res_g)
         return delta_x
 
     def load_and_project_reference_data(self):
@@ -368,7 +380,8 @@ class GeothermalWaterFlowModel(FlowModel):
         res_p_norm = np.linalg.norm(res_g[eq_p_dof_idx])
         res_z_norm = np.linalg.norm(res_g[eq_z_dof_idx])
         res_h_norm = np.linalg.norm(res_g[eq_h_dof_idx])
-        converged_state_Q = np.all(np.array([res_p_norm,res_z_norm,res_h_norm]) < res_tol)
+        primary_residuals = [res_p_norm,res_z_norm,res_h_norm]
+        converged_state_Q = np.all(np.array(primary_residuals) < res_tol)
         print('converged_state_Q: ', converged_state_Q)
 
         res_t_norm = np.linalg.norm(res_g[eq_t_dof_idx])
@@ -436,10 +449,101 @@ class GeothermalWaterFlowModel(FlowModel):
             print("Elapsed time for postprocessing secondary increments: ", te - tb)
         return
 
+    def rectify_secondary_fields(self, delta_x, res_g):
+
+        eq_idx_map = self.equation_system.assembled_equation_indices
+        eq_p_dof_idx = eq_idx_map['pressure_equation']
+        eq_z_dof_idx = eq_idx_map['mass_balance_equation_NaCl']
+        eq_h_dof_idx = eq_idx_map['total_energy_balance']
+
+        eq_t_dof_idx = eq_idx_map['elimination_of_temperature_on_grids_[0]']
+        eq_s_dof_idx = eq_idx_map['elimination_of_s_gas_on_grids_[0]']
+        eq_xw_v_dof_idx = self.equation_system.dofs_of(
+            ['elimination_of_x_H2O_gas_on_grids_[0]'])
+        eq_xw_l_dof_idx = self.equation_system.dofs_of(
+            ['elimination_of_x_H2O_liq_on_grids_[0]'])
+        eq_xs_v_dof_idx = self.equation_system.dofs_of(
+            ['elimination_of_x_NaCl_liq_on_grids_[0]'])
+        eq_xs_l_dof_idx = self.equation_system.dofs_of(
+            ['elimination_of_x_NaCl_gas_on_grids_[0]'])
+
+        res_tol = self.params['nl_convergence_tol_res']
+        res_p_norm = np.linalg.norm(res_g[eq_p_dof_idx])
+        res_z_norm = np.linalg.norm(res_g[eq_z_dof_idx])
+        res_h_norm = np.linalg.norm(res_g[eq_h_dof_idx])
+        primary_residuals = [res_p_norm, res_z_norm, res_h_norm]
+        converged_state_Q = np.all(np.array(primary_residuals) < res_tol)
+        print('converged_state_Q: ', converged_state_Q)
+
+        res_t_norm = np.linalg.norm(res_g[eq_t_dof_idx])
+        res_s_norm = np.linalg.norm(res_g[eq_s_dof_idx])
+        res_xw_v_norm = np.linalg.norm(res_g[eq_xw_v_dof_idx])
+        res_xw_l_norm = np.linalg.norm(res_g[eq_xw_l_dof_idx])
+        res_xs_v_norm = np.linalg.norm(res_g[eq_xs_v_dof_idx])
+        res_xs_l_norm = np.linalg.norm(res_g[eq_xs_l_dof_idx])
+        secondary_residuals = [res_t_norm, res_s_norm, res_xw_v_norm, res_xw_l_norm,
+                               res_xs_v_norm, res_xs_l_norm]
+        secondary_converged_states = np.array(secondary_residuals) < res_tol
+
+        tb = time.time()
+        x0 = self.equation_system.get_variable_values(iterate_index=0)
+        p_dof_idx = self.equation_system.dofs_of(['pressure'])
+        z_dof_idx = self.equation_system.dofs_of(['z_NaCl'])
+        h_dof_idx = self.equation_system.dofs_of(['enthalpy'])
+        t_dof_idx = self.equation_system.dofs_of(['temperature'])
+        s_dof_idx = self.equation_system.dofs_of(['s_gas'])
+        xw_v_dof_idx = self.equation_system.dofs_of(['x_H2O_gas'])
+        xw_l_dof_idx = self.equation_system.dofs_of(['x_H2O_liq'])
+        xs_v_dof_idx = self.equation_system.dofs_of(['x_NaCl_gas'])
+        xs_l_dof_idx = self.equation_system.dofs_of(['x_NaCl_liq'])
+
+        p_k = delta_x[p_dof_idx] + x0[p_dof_idx]
+        z_k = delta_x[z_dof_idx] + x0[z_dof_idx]
+        h_k = delta_x[h_dof_idx] + x0[h_dof_idx]
+        par_points = np.array((z_k, h_k, p_k)).T
+        self.vtk_sampler.sample_at(par_points)
+        t_k = self.vtk_sampler.sampled_could.point_data['Temperature']
+        s_k = self.vtk_sampler.sampled_could.point_data['S_v']
+        Xw_v_k = 1.0 - self.vtk_sampler.sampled_could.point_data['Xv']
+        Xw_l_k = 1.0 - self.vtk_sampler.sampled_could.point_data['Xl']
+        Xs_v_k = self.vtk_sampler.sampled_could.point_data['Xv']
+        Xs_l_k = self.vtk_sampler.sampled_could.point_data['Xl']
+
+        delta_t = t_k - x0[t_dof_idx]
+        delta_s = s_k - x0[s_dof_idx]
+        delta_Xw_v = Xw_v_k - x0[xw_v_dof_idx]
+        delta_Xw_l = Xw_l_k - x0[xw_l_dof_idx]
+        delta_Xs_v = Xs_v_k - x0[xs_v_dof_idx]
+        delta_Xs_l = Xs_l_k - x0[xs_l_dof_idx]
+
+        def newton_increment_constraint(res_norm):
+            if res_norm < 0.01:
+                return 1.0
+            elif 0.01 <= res_norm < np.pi:
+                return 1.0 / np.pi
+            elif np.pi <= res_norm < 10.0 * np.pi:
+                return 1.0 / res_norm
+            else:
+                return 1.0 / 10.0 * np.pi
+
+        deltas = [delta_t, delta_s, delta_Xw_v, delta_Xw_l, delta_Xs_v, delta_Xs_l]
+        dofs_idx = [t_dof_idx, s_dof_idx, xw_v_dof_idx, xw_l_dof_idx, xs_v_dof_idx,
+                    xs_l_dof_idx]
+        # update deltas
+        for k_field, conv_state in enumerate(secondary_converged_states):
+            if conv_state:
+                continue
+            delta = deltas[k_field]
+            dof_idx = dofs_idx[k_field]
+            alpha_scale = newton_increment_constraint(secondary_residuals[k_field])
+            delta_x[dof_idx] = delta * alpha_scale
+        te = time.time()
+        print("Elapsed time for postprocessing secondary increments: ", te - tb)
+
 # Instance of the computational model
 model = GeothermalWaterFlowModel(params)
 
-parametric_space_ref_level = 0
+parametric_space_ref_level = 2
 file_name_prefix = "model_configuration/constitutive_description/driesner_vtk_files/"
 file_name_phz = (
     file_name_prefix + "XHP_l" + str(parametric_space_ref_level) + "_modified_low_salt_content.vtk"
@@ -467,19 +571,19 @@ print("Elapsed time prepare simulation: ", te - tb)
 print("Simulation prepared for total number of DoF: ", model.equation_system.num_dofs())
 print("Mixed-dimensional grid employed: ", model.mdg)
 
-P_proj, H_proj, T_proj, S_proj = model.load_and_project_reference_data()
-
-z_proj = (1.0e-4) * np.ones_like(S_proj)
-par_points = np.array((z_proj, H_proj, P_proj)).T
-model.vtk_sampler.sample_at(par_points)
-H_vtk = model.vtk_sampler.sampled_could.point_data['H']*1.0e-6
-T_vtk = model.vtk_sampler.sampled_could.point_data['Temperature']
-S_vtk = model.vtk_sampler.sampled_could.point_data['S_l']
-
-# xdata = np.array((H_proj,P_proj)).T
-# ds_data = np.linalg.norm(xdata - xdata[0],axis = 1)
-# plt.plot(ds_data, S_proj, label='Saturation along parametric space')
-
+# P_proj, H_proj, T_proj, S_proj = model.load_and_project_reference_data()
+#
+# z_proj = (1.0e-3) * np.ones_like(S_proj)
+# par_points = np.array((z_proj, H_proj, P_proj)).T
+# model.vtk_sampler.sample_at(par_points)
+# H_vtk = model.vtk_sampler.sampled_could.point_data['H']*1.0e-6
+# T_vtk = model.vtk_sampler.sampled_could.point_data['Temperature']
+# S_vtk = model.vtk_sampler.sampled_could.point_data['S_l']
+#
+# # xdata = np.array((H_proj,P_proj)).T
+# # ds_data = np.linalg.norm(xdata - xdata[0],axis = 1)
+# # plt.plot(ds_data, S_proj, label='Saturation along parametric space')
+#
 # def draw_and_save_comparison(T_proj,T_vtk,S_proj,S_vtk,H_proj,H_vtk):
 #     # plot the data
 #     figure_data = {
