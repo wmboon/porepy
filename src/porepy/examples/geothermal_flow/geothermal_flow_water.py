@@ -17,7 +17,7 @@ M_scale = 1.0e-6
 
 day = 86400 #seconds in a day.
 tf = 730000.0 * day # final time [2000 years]
-dt = 73000.0 * day # time step size [2 years]
+dt = 7300.0 * day   # time step size [2 years]
 time_manager = pp.TimeManager(
     schedule=[0.0, tf],
     dt_init=dt,
@@ -44,7 +44,7 @@ params = {
     "prepare_simulation": False,
     "reduce_linear_system_q": False,
     "nl_convergence_tol": np.inf,
-    "nl_convergence_tol_res": 1.0e-3,
+    "nl_convergence_tol_res": 1.0e-5,
     "max_iterations": 200,
 }
 
@@ -108,7 +108,6 @@ class GeothermalWaterFlowModel(FlowModel):
         print("Elapsed time linear solve: ", te - tb)
 
         self.postprocessing_overshoots(delta_x)
-        self.postprocessing_secondary_variables_increments(delta_x, res_g)
         # def newton_increment_constraint(res_norm):
         #     if res_norm < 0.001:
         #         return 1.0
@@ -124,6 +123,8 @@ class GeothermalWaterFlowModel(FlowModel):
 
         tb = time.time()
         x = self.equation_system.get_variable_values(iterate_index=0).copy()
+        self.postprocessing_secondary_variables_increments(x, delta_x, res_g)
+        # self.postprocessing_secondary_variables_increments(x, delta_x, res_g)
         # Line search: backtracking to satisfy Armijo condition per field
 
         dofs_idx = {
@@ -142,7 +143,7 @@ class GeothermalWaterFlowModel(FlowModel):
             's': 4,
         }
 
-        eps_tol = 1.0e-4
+        eps_tol = 0.0 * self.params['nl_convergence_tol_res']
         field_to_skip = []
         for item in fields_idx.items():
             field_name, field_idx = item
@@ -150,13 +151,18 @@ class GeothermalWaterFlowModel(FlowModel):
             if np.linalg.norm(res_g[eq_idx]) < eps_tol:
                 field_to_skip.append(field_name)
         print('No line search performed on the fields: ', field_to_skip)
-        max_searches = 15
-        beta = 0.5  # reduction factor for alpha
-        c = 1.0e-2  # Armijo condition constant
+        max_searches = 10
+        beta = 0.8  # reduction factor for alpha
+        c = 1.0e-6  # Armijo condition constant
         alpha = np.ones(5) # initial step size
         k = 0
         x_k = x + delta_x
-        Armijo_condition = np.array([True, True, True, True, True])
+
+        Armijo_condition = [True, True, True, True, True]
+        for i, field_name in enumerate(fields_idx.keys()):
+            if field_name in field_to_skip:
+                Armijo_condition[i] = False
+        Armijo_condition = np.array(Armijo_condition)
         while np.any(Armijo_condition) and (len(field_to_skip) < 5):
             for item in fields_idx.items():
                 field_name, field_idx = item
@@ -173,26 +179,29 @@ class GeothermalWaterFlowModel(FlowModel):
                 if field_name in field_to_skip:
                     continue
                 eq_idx, dof_idx = dofs_idx[field_name]
-                Armijo_condition[field_idx] = np.any(res_g_k[eq_idx] > np.linalg.norm(res_g[eq_idx]) + c * alpha[field_idx] * np.dot(res_g[eq_idx], delta_x[dof_idx]))
-                # Armijo_condition[field_idx] = np.any(res_g_k > np.linalg.norm(res_g) + c * np.mean(alpha) * np.dot(res_g, delta_x))
+                Armijo_condition[field_idx] = np.any(np.linalg.norm(res_g_k[eq_idx]) > np.linalg.norm(res_g[eq_idx]) + c * alpha[field_idx] * np.dot(res_g[eq_idx], delta_x[dof_idx]))
+                # Armijo_condition[field_idx] = np.any(np.linalg.norm(res_g_k) > np.linalg.norm(res_g) + c * np.mean(alpha) * np.dot(res_g, delta_x))
                 if Armijo_condition[field_idx]:
                     alpha[field_idx] *= beta
             k+=1
             if k == max_searches:
                 print("The backtracking line search has reached the maximum number of iterations.")
                 break
-
-        # Scaled the increment per field
-        for item in fields_idx.items():
-            field_name, field_idx = item
-            if field_name in field_to_skip:
-                continue
-            _, dof_idx = dofs_idx[field_name]
-            delta_x[dof_idx] *= alpha[field_idx]
+        print("alphas per field: ", alpha)
+        # # Scaled the increment per field
+        # for item in fields_idx.items():
+        #     field_name, field_idx = item
+        #     if field_name in field_to_skip:
+        #         continue
+        #     _, dof_idx = dofs_idx[field_name]
+        #     delta_x[dof_idx] *= alpha[field_idx]
+        # adjusted increment
+        delta_x = x_k - x
+        if k == max_searches:
+            self.postprocessing_secondary_variables_increments(x, delta_x, res_g_k)
         self.equation_system.set_variable_values(values=x, iterate_index=0)
         te = time.time()
         print("Elapsed time for backtracking line search: ", te - tb)
-        # self.postprocessing_secondary_variables_increments(delta_x, res_g)
         return delta_x
 
     def load_and_project_reference_data(self):
@@ -362,7 +371,7 @@ class GeothermalWaterFlowModel(FlowModel):
         print("Elapsed time for postprocessing overshoots: ", te - tb)
         return
 
-    def postprocessing_secondary_variables_increments(self, delta_x, res_g):
+    def postprocessing_secondary_variables_increments(self, x0, delta_x, res_g):
 
         eq_idx_map = self.equation_system.assembled_equation_indices
         eq_p_dof_idx = eq_idx_map['pressure_equation']
@@ -382,7 +391,7 @@ class GeothermalWaterFlowModel(FlowModel):
         res_h_norm = np.linalg.norm(res_g[eq_h_dof_idx])
         primary_residuals = [res_p_norm,res_z_norm,res_h_norm]
         converged_state_Q = np.all(np.array(primary_residuals) < res_tol)
-        print('converged_state_Q: ', converged_state_Q)
+        print('Secondary_variables_increments:: converged_state_Q: ', converged_state_Q)
 
         res_t_norm = np.linalg.norm(res_g[eq_t_dof_idx])
         res_s_norm = np.linalg.norm(res_g[eq_s_dof_idx])
@@ -395,7 +404,7 @@ class GeothermalWaterFlowModel(FlowModel):
         if converged_state_Q:
 
             tb = time.time()
-            x0 = self.equation_system.get_variable_values(iterate_index=0)
+            # x0 = self.equation_system.get_variable_values(iterate_index=0)
             p_dof_idx = self.equation_system.dofs_of(['pressure'])
             z_dof_idx = self.equation_system.dofs_of(['z_NaCl'])
             h_dof_idx = self.equation_system.dofs_of(['enthalpy'])
@@ -425,15 +434,15 @@ class GeothermalWaterFlowModel(FlowModel):
             delta_Xs_v = Xs_v_k - x0[xs_v_dof_idx]
             delta_Xs_l = Xs_l_k - x0[xs_l_dof_idx]
 
-            def newton_increment_constraint(res_norm):
-                if res_norm < 0.01:
-                    return 1.0
-                elif 0.01 <= res_norm < np.pi:
-                    return 1.0/np.pi
-                elif np.pi <= res_norm < 10.0*np.pi:
-                    return 1.0 / res_norm
-                else:
-                    return 1.0/10.0*np.pi
+            # def newton_increment_constraint(res_norm):
+            #     if res_norm < 0.01:
+            #         return 1.0
+            #     elif 0.01 <= res_norm < np.pi:
+            #         return 1.0/np.pi
+            #     elif np.pi <= res_norm < 10.0*np.pi:
+            #         return 1.0 / res_norm
+            #     else:
+            #         return 1.0/10.0*np.pi
 
             deltas = [delta_t,delta_s,delta_Xw_v,delta_Xw_l,delta_Xs_v,delta_Xs_l]
             dofs_idx = [t_dof_idx,s_dof_idx,xw_v_dof_idx,xw_l_dof_idx,xs_v_dof_idx,xs_l_dof_idx]
@@ -443,8 +452,9 @@ class GeothermalWaterFlowModel(FlowModel):
                     continue
                 delta = deltas[k_field]
                 dof_idx = dofs_idx[k_field]
-                alpha_scale = newton_increment_constraint(secondary_residuals[k_field])
-                delta_x[dof_idx] = delta * alpha_scale
+                # alpha_scale = newton_increment_constraint(secondary_residuals[k_field])
+                # delta_x[dof_idx] = delta * alpha_scale
+                delta_x[dof_idx] = delta
             te = time.time()
             print("Elapsed time for postprocessing secondary increments: ", te - tb)
         return
@@ -543,7 +553,7 @@ class GeothermalWaterFlowModel(FlowModel):
 # Instance of the computational model
 model = GeothermalWaterFlowModel(params)
 
-parametric_space_ref_level = 2
+parametric_space_ref_level = 1
 file_name_prefix = "model_configuration/constitutive_description/driesner_vtk_files/"
 file_name_phz = (
     file_name_prefix + "XHP_l" + str(parametric_space_ref_level) + "_modified_low_salt_content.vtk"
