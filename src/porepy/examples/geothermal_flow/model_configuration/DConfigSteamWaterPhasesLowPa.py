@@ -13,6 +13,7 @@ from .constitutive_description.PureWaterConstitutiveDescription import (
     SecondaryEquations,
 )
 from .geometry_description.geometry_market import SimpleGeometry1D as ModelGeometry
+from thermo import FlashPureVLS, IAPWS95Liquid, IAPWS95Gas, iapws_constants, iapws_correlations
 
 ## Bc to simulate pure-water with single liquid phase flow.
 class BoundaryConditions(BoundaryConditionsCF):
@@ -52,11 +53,24 @@ class BoundaryConditions(BoundaryConditionsCF):
         # evaluation from PTZ specs
         p = self.bc_values_pressure(boundary_grid)
         t = self.bc_values_temperature(boundary_grid)
-        z_NaCl = np.zeros_like(p)
-        assert len(p) == len(t) == len(z_NaCl)
-        par_points = np.array((z_NaCl, t, p)).T
-        self.vtk_sampler_ptz.sample_at(par_points)
-        h = self.vtk_sampler_ptz.sampled_could.point_data['H'] * 1.0e-6
+        # z_NaCl = np.zeros_like(p)
+        # assert len(p) == len(t) == len(z_NaCl)
+        # par_points = np.array((z_NaCl, t, p)).T
+        # self.vtk_sampler_ptz.sample_at(par_points)
+        # h = self.vtk_sampler_ptz.sampled_could.point_data['H'] * 1.0e-6
+
+        # triple point of water
+        T_ref = 273.16
+        P_ref = 611.657
+        liquid = IAPWS95Liquid(T=T_ref, P=P_ref, zs=[1])
+        gas = IAPWS95Gas(T=T_ref, P=P_ref, zs=[1])
+        flasher = FlashPureVLS(iapws_constants, iapws_correlations, gas, [liquid], [])
+
+        h_data = []
+        for i, pair in enumerate(zip(p, t)):
+            PT = flasher.flash(P=pair[0] * 1.0e6, T=pair[1])
+            h_data.append(PT.H_mass() * 1.0e-6)
+        h = np.array(h_data)
         return h
 
     def bc_values_overall_fraction(
@@ -93,11 +107,24 @@ class InitialConditions(InitialConditionsCF):
         # evaluation from PTZ specs.
         p = self.initial_pressure(sd)
         t = self.initial_temperature(sd)
-        z_NaCl = np.zeros_like(p)
-        assert len(p) == len(t) == len(z_NaCl)
-        par_points = np.array((z_NaCl, t, p)).T
-        self.vtk_sampler_ptz.sample_at(par_points)
-        h_init = self.vtk_sampler_ptz.sampled_could.point_data['H'] * 1.0e-6
+        # z_NaCl = np.zeros_like(p)
+        # assert len(p) == len(t) == len(z_NaCl)
+        # par_points = np.array((z_NaCl, t, p)).T
+        # self.vtk_sampler_ptz.sample_at(par_points)
+        # h_init = self.vtk_sampler_ptz.sampled_could.point_data['H'] * 1.0e-6
+
+        # triple point of water
+        T_ref = 273.16
+        P_ref = 611.657
+        liquid = IAPWS95Liquid(T=T_ref, P=P_ref, zs=[1])
+        gas = IAPWS95Gas(T=T_ref, P=P_ref, zs=[1])
+        flasher = FlashPureVLS(iapws_constants, iapws_correlations, gas, [liquid], [])
+
+        h_data = []
+        for i, pair in enumerate(zip(p, t)):
+            PT = flasher.flash(P=pair[0] * 1.0e6, T=pair[1])
+            h_data.append(PT.H_mass() * 1.0e-6)
+        h_init = np.array(h_data)
 
         return h_init
     
