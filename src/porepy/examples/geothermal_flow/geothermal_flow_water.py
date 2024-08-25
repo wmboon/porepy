@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-
+from typing import Any
 import numpy as np
 
 from model_configuration.DConfigSteamWaterPhasesLowPa import (
@@ -18,7 +18,7 @@ M_scale = 1.0e-6
 day = 86400 #seconds in a day.
 year = 365.0 * day
 tf = 2000.0 * year # final time [2000 years]
-dt = 2000.0 * year # time step size [1 years]
+dt = 10.0 * year # time step size [1 years]
 time_manager = pp.TimeManager(
     schedule=[0.0, tf],
     dt_init=dt,
@@ -45,7 +45,10 @@ params = {
     "prepare_simulation": False,
     "reduce_linear_system_q": False,
     "nl_convergence_tol": np.inf,
-    "nl_convergence_tol_res": 1.0e-4,
+    "nl_convergence_mass_tol_res": 1.0e-5,
+    "nl_convergence_energy_tol_res": 1.0e-5,
+    "nl_convergence_temperature_tol_res": 1.0e-2,
+    "nl_convergence_fractions_tol_res": 1.0e-4,
     "max_iterations": 100,
 }
 
@@ -98,8 +101,8 @@ class GeothermalWaterFlowModel(FlowModel):
         eq_p_idx = np.concatenate([eq_p_dof_idx, eq_z_dof_idx, eq_h_dof_idx, eq_t_dof_idx])
         var_p_idx = np.concatenate([p_dof_idx, z_dof_idx, h_dof_idx, t_dof_idx])
 
-        eq_s_idx = np.concatenate([eq_t_dof_idx, eq_s_dof_idx, eq_xw_v_dof_idx, eq_xw_l_dof_idx, eq_xs_v_dof_idx, eq_xs_l_dof_idx])
-        var_s_idx = np.concatenate([t_dof_idx, s_dof_idx, xw_v_dof_idx, xw_l_dof_idx, xs_v_dof_idx, xs_l_dof_idx])
+        eq_s_idx = np.concatenate([eq_s_dof_idx, eq_xw_v_dof_idx, eq_xw_l_dof_idx, eq_xs_v_dof_idx, eq_xs_l_dof_idx])
+        var_s_idx = np.concatenate([s_dof_idx, xw_v_dof_idx, xw_l_dof_idx, xs_v_dof_idx, xs_l_dof_idx])
 
         jac_g, res_g = self.linear_system
         print("Overall residual norm at x_k: ", np.linalg.norm(res_g))
@@ -115,16 +118,16 @@ class GeothermalWaterFlowModel(FlowModel):
 
 
         tb = time.time()
-        delta_x = np.zeros_like(res_g)
-        # delta_x = super().solve_linear_system().copy()
+        delta_x = super().solve_linear_system().copy()
 
-        jac_p = jac_g[eq_p_idx[:, None], var_p_idx]
-        res_p = res_g[eq_p_idx]
-        self.linear_system = (jac_p, res_p)
-        delta_x_p = super().solve_linear_system().copy()
-        delta_x[var_p_idx] = delta_x_p
-
-        delta_x[var_s_idx] = -1.0 * res_g[eq_s_idx]
+        # delta_x = np.zeros_like(res_g)
+        # jac_p = jac_g[eq_p_idx[:, None], var_p_idx]
+        # res_p = res_g[eq_p_idx]
+        # self.linear_system = (jac_p, res_p)
+        # delta_x_p = super().solve_linear_system().copy()
+        # delta_x[var_p_idx] = delta_x_p
+        #
+        # delta_x[var_s_idx] = -1.0 * res_g[eq_s_idx]
 
         reduce_linear_system_q = self.params.get("reduce_linear_system_q", False)
         if reduce_linear_system_q:
@@ -163,7 +166,8 @@ class GeothermalWaterFlowModel(FlowModel):
 
         tb = time.time()
         x = self.equation_system.get_variable_values(iterate_index=0).copy()
-        self.postprocessing_secondary_variables_increments(x, delta_x, res_g)
+        # self.postprocessing_secondary_variables_increments(x, delta_x, res_g)
+
         # self.postprocessing_secondary_variables_increments(x, delta_x, res_g)
         # Line search: backtracking to satisfy Armijo condition per field
 
@@ -191,7 +195,7 @@ class GeothermalWaterFlowModel(FlowModel):
             'xs_l': 8,
         }
 
-        eps_tol = 0.0 * self.params['nl_convergence_tol_res']
+        eps_tol = 0.0
         field_to_skip = []
         for item in fields_idx.items():
             field_name, field_idx = item
@@ -451,7 +455,6 @@ class GeothermalWaterFlowModel(FlowModel):
             tb = time.time()
             p0_red = p_0[multiphase_idx]
             h0_red = h_0[multiphase_idx]
-            t0_red = h_0[multiphase_idx]
             z0_red = z_0[multiphase_idx]
             beta_red = beta_mass_v[multiphase_idx]
             h, idx = self.bisection_method(p0_red, z0_red, beta_red)
@@ -680,7 +683,9 @@ class GeothermalWaterFlowModel(FlowModel):
         eq_xs_l_dof_idx = self.equation_system.dofs_of(
             ['elimination_of_x_NaCl_gas_on_grids_[0]'])
 
-        res_tol = self.params['nl_convergence_tol_res']
+        res_tol_mass = self.params['nl_convergence_mass_tol_res']
+        res_tol_energy = self.params['nl_convergence_mass_tol_res']
+        res_tol = np.max(res_tol_mass, res_tol_energy)
         res_p_norm = np.linalg.norm(res_g[eq_p_dof_idx])
         res_z_norm = np.linalg.norm(res_g[eq_z_dof_idx])
         res_h_norm = np.linalg.norm(res_g[eq_h_dof_idx])
@@ -753,10 +758,56 @@ class GeothermalWaterFlowModel(FlowModel):
         te = time.time()
         print("Elapsed time for postprocessing secondary increments: ", te - tb)
 
+    def check_convergence(
+        self,
+        nonlinear_increment: np.ndarray,
+        residual: np.ndarray,
+        reference_residual: np.ndarray,
+        nl_params: dict[str, Any],
+    ) -> tuple[float, float, bool, bool]:
+        if not self._is_nonlinear_problem():
+            # At least for the default direct solver, scipy.sparse.linalg.spsolve, no
+            # error (but a warning) is raised for singular matrices, but a nan solution
+            # is returned. We check for this.
+            diverged = bool(np.any(np.isnan(nonlinear_increment)))
+            converged: bool = not diverged
+            residual_norm: float = np.nan if diverged else 0.0
+            nonlinear_increment_norm: float = np.nan if diverged else 0.0
+        else:
+            # First a simple check for nan values.
+            if np.any(np.isnan(nonlinear_increment)):
+                # If the solution contains nan values, we have diverged.
+                return np.nan, np.nan, False, True
+
+            # nonlinear_increment based norm
+            nonlinear_increment_norm = self.compute_nonlinear_increment_norm(
+                nonlinear_increment
+            )
+            # Residual based norm
+            residual_norm = self.compute_residual_norm(residual, reference_residual)
+            # Check convergence requiring both the increment and residual to be small.
+            converged_inc = nonlinear_increment_norm < nl_params["nl_convergence_tol"]
+
+            converged_res_mass = residual_norm < nl_params["nl_convergence_mass_tol_res"]
+            converged_res_energy = residual_norm < nl_params["nl_convergence_energy_tol_res"]
+            converged_res_temperature = residual_norm < nl_params["nl_convergence_temperature_tol_res"]
+            converged_res_fractions = residual_norm < nl_params[
+                "nl_convergence_fractions_tol_res"]
+            converged_res = converged_res_mass and converged_res_energy and converged_res_temperature and converged_res_fractions
+            converged = converged_inc and converged_res
+            diverged = False
+
+        # Log the errors (here increments and residuals)
+        self.nonlinear_solver_statistics.log_error(
+            nonlinear_increment_norm, residual_norm
+        )
+
+        return residual_norm, nonlinear_increment_norm, converged, diverged
+
 # Instance of the computational model
 model = GeothermalWaterFlowModel(params)
 
-parametric_space_ref_level = 2
+parametric_space_ref_level = 1
 file_name_prefix = "model_configuration/constitutive_description/driesner_vtk_files/"
 file_name_phz = (
     file_name_prefix + "XHP_l" + str(parametric_space_ref_level) + "_modified_low_salt_content.vtk"
@@ -800,7 +851,7 @@ S_vtk = model.vtk_sampler.sampled_could.point_data['S_l']
 def draw_and_save_comparison(T_proj,T_vtk,S_proj,S_vtk,H_proj,H_vtk):
     # plot the data
     figure_data = {
-        'T': ('temperarure_at_2000_years.png', 'T - Fig. 6A P. WEIS (2014)', 'T - VTKsample + GEOMAR'),
+        'T': ('temperature_at_2000_years.png', 'T - Fig. 6A P. WEIS (2014)', 'T - VTKsample + GEOMAR'),
         'S': ('liquid_saturation_at_2000_years.png', 's_l - Fig. 6B P. WEIS (2014)', 's_l - VTKsample + GEOMAR'),
         'H': ('enthalpy_at_2000_years.png', 'H - Fig. 6A P. WEIS (2014)', 'H - VTKsample + GEOMAR'),
     }
@@ -833,10 +884,10 @@ def draw_and_save_comparison(T_proj,T_vtk,S_proj,S_vtk,H_proj,H_vtk):
 draw_and_save_comparison(T_proj,T_vtk,S_proj,S_vtk,H_proj,H_vtk)
 
 # project solution as initial guess
-x = model.equation_system.get_variable_values(iterate_index=0).copy()
-delta_x = model.increment_from_projected_solution()
-x_k = x + delta_x
-model.equation_system.set_variable_values(values=x_k, iterate_index=0)
+# x = model.equation_system.get_variable_values(iterate_index=0).copy()
+# delta_x = model.increment_from_projected_solution()
+# x_k = x + delta_x
+# model.equation_system.set_variable_values(values=x_k, iterate_index=0)
 
 
 # print geometry
@@ -867,7 +918,7 @@ T_num = model.equation_system.get_variable_values(['temperature'],time_step_inde
 def draw_and_save_comparison_numeric(T_proj,T_num,S_proj,S_num,H_proj,H_num,P_proj,P_num):
     # plot the data
     figure_data = {
-        'T': ('pp_temperarure_at_2000_years.png', 'T - Fig. 6A P. WEIS (2014)', 'T - numeric + GEOMAR'),
+        'T': ('pp_temperature_at_2000_years.png', 'T - Fig. 6A P. WEIS (2014)', 'T - numeric + GEOMAR'),
         'S': ('pp_liquid_saturation_at_2000_years.png', 's_l - Fig. 6B P. WEIS (2014)', 's_l - numeric + GEOMAR'),
         'H': ('pp_enthalpy_at_2000_years.png', 'H - Fig. 6A P. WEIS (2014)', 'H - numeric '),
         'P': ('pp_pressure_at_2000_years.png', 'H - Fig. 6A P. WEIS (2014)', 'P - numeric '),
