@@ -46,8 +46,8 @@ params = {
     "reduce_linear_system_q": False,
     "nl_convergence_tol": np.inf,
     "nl_convergence_mass_tol_res": 1.0e-5,
-    "nl_convergence_energy_tol_res": 1.0e-5,
-    "nl_convergence_temperature_tol_res": 1.0e-2,
+    "nl_convergence_energy_tol_res": 1.0e-4,
+    "nl_convergence_temperature_tol_res": 1.0e-3,
     "nl_convergence_fractions_tol_res": 1.0e-4,
     "max_iterations": 100,
 }
@@ -514,7 +514,9 @@ class GeothermalWaterFlowModel(FlowModel):
         eq_xs_v_dof_idx = eq_idx_map['elimination_of_x_NaCl_liq_on_grids_[0]']
         eq_xs_l_dof_idx = eq_idx_map['elimination_of_x_NaCl_gas_on_grids_[0]']
 
-        res_tol = 10.0 * self.params['nl_convergence_tol_res']
+        res_tol_mass = self.params['nl_convergence_mass_tol_res']
+        res_tol_energy = self.params['nl_convergence_mass_tol_res']
+        res_tol = np.max([res_tol_mass, res_tol_energy])
         res_p_norm = np.linalg.norm(res_g[eq_p_dof_idx])
         res_z_norm = np.linalg.norm(res_g[eq_z_dof_idx])
         res_h_norm = np.linalg.norm(res_g[eq_h_dof_idx])
@@ -685,7 +687,7 @@ class GeothermalWaterFlowModel(FlowModel):
 
         res_tol_mass = self.params['nl_convergence_mass_tol_res']
         res_tol_energy = self.params['nl_convergence_mass_tol_res']
-        res_tol = np.max(res_tol_mass, res_tol_energy)
+        res_tol = np.max([res_tol_mass, res_tol_energy])
         res_p_norm = np.linalg.norm(res_g[eq_p_dof_idx])
         res_z_norm = np.linalg.norm(res_g[eq_z_dof_idx])
         res_h_norm = np.linalg.norm(res_g[eq_h_dof_idx])
@@ -784,18 +786,56 @@ class GeothermalWaterFlowModel(FlowModel):
                 nonlinear_increment
             )
             # Residual based norm
-            residual_norm = self.compute_residual_norm(residual, reference_residual)
+            eq_idx_map = self.equation_system.assembled_equation_indices
+            eq_p_dof_idx = eq_idx_map['pressure_equation']
+            eq_z_dof_idx = eq_idx_map['mass_balance_equation_NaCl']
+            eq_h_dof_idx = eq_idx_map['total_energy_balance']
+            eq_t_dof_idx = eq_idx_map['elimination_of_temperature_on_grids_[0]']
+            eq_s_dof_idx = eq_idx_map['elimination_of_s_gas_on_grids_[0]']
+            eq_xw_v_dof_idx = eq_idx_map['elimination_of_x_H2O_gas_on_grids_[0]']
+            eq_xw_l_dof_idx = eq_idx_map['elimination_of_x_H2O_liq_on_grids_[0]']
+            eq_xs_v_dof_idx = eq_idx_map['elimination_of_x_NaCl_liq_on_grids_[0]']
+            eq_xs_l_dof_idx = eq_idx_map['elimination_of_x_NaCl_gas_on_grids_[0]']
+
+            # mass system
+            eq_mass_idx = np.concatenate([eq_p_dof_idx, eq_z_dof_idx])
+
+            # energy system
+            eq_energy_idx = np.concatenate([eq_h_dof_idx])
+
+            # temperature system
+            eq_temperature_idx = np.concatenate([eq_t_dof_idx])
+
+            # fractions system
+            eq_fractions_idx = np.concatenate(
+                [eq_s_dof_idx, eq_xw_v_dof_idx, eq_xw_l_dof_idx, eq_xs_v_dof_idx,
+                 eq_xs_l_dof_idx])
+
+            res_norm_mass = np.linalg.norm(residual[eq_mass_idx])
+            res_norm_energy= np.linalg.norm(residual[eq_energy_idx])
+            res_norm_temperature = np.linalg.norm(residual[eq_temperature_idx])
+            res_norm_fractions = np.linalg.norm(residual[eq_fractions_idx])
+
             # Check convergence requiring both the increment and residual to be small.
             converged_inc = nonlinear_increment_norm < nl_params["nl_convergence_tol"]
 
-            converged_res_mass = residual_norm < nl_params["nl_convergence_mass_tol_res"]
-            converged_res_energy = residual_norm < nl_params["nl_convergence_energy_tol_res"]
-            converged_res_temperature = residual_norm < nl_params["nl_convergence_temperature_tol_res"]
-            converged_res_fractions = residual_norm < nl_params[
+            converged_res_mass = res_norm_mass < nl_params["nl_convergence_mass_tol_res"]
+            converged_res_energy = res_norm_energy < nl_params["nl_convergence_energy_tol_res"]
+            converged_res_temperature = res_norm_temperature < nl_params["nl_convergence_temperature_tol_res"]
+            converged_res_fractions = res_norm_fractions < nl_params[
                 "nl_convergence_fractions_tol_res"]
             converged_res = converged_res_mass and converged_res_energy and converged_res_temperature and converged_res_fractions
             converged = converged_inc and converged_res
             diverged = False
+
+            if converged:
+                print("Solution procedure is declared converged.")
+                print("Overall residual norm at x_k: ", np.linalg.norm(residual))
+                print("Mass residual norm: ", res_norm_mass)
+                print("Energy residual norm: ", res_norm_energy)
+                print("Temperature residual norm: ", res_norm_temperature)
+                print("Fractions residual norm: ", res_norm_fractions)
+
 
         # Log the errors (here increments and residuals)
         self.nonlinear_solver_statistics.log_error(
