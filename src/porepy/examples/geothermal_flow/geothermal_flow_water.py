@@ -18,7 +18,7 @@ M_scale = 1.0e-6
 day = 86400 #seconds in a day.
 year = 365.0 * day
 tf = 2000.0 * year # final time [2000 years]
-dt = 10.0 * year # time step size [1 years]
+dt = 2000.0 * year # time step size [1 years]
 time_manager = pp.TimeManager(
     schedule=[0.0, tf],
     dt_init=dt,
@@ -45,8 +45,8 @@ params = {
     "prepare_simulation": False,
     "reduce_linear_system_q": False,
     "nl_convergence_tol": np.inf,
-    "nl_convergence_mass_tol_res": 1.0e-5,
-    "nl_convergence_energy_tol_res": 1.0e-4,
+    "nl_convergence_mass_tol_res": 1.0e-4,
+    "nl_convergence_energy_tol_res": 1.0e-3,
     "nl_convergence_temperature_tol_res": 1.0e-3,
     "nl_convergence_fractions_tol_res": 1.0e-4,
     "max_iterations": 100,
@@ -166,7 +166,7 @@ class GeothermalWaterFlowModel(FlowModel):
 
         tb = time.time()
         x = self.equation_system.get_variable_values(iterate_index=0).copy()
-        # self.postprocessing_secondary_variables_increments(x, delta_x, res_g)
+        self.postprocessing_secondary_variables_increments(x, delta_x, res_g)
 
         # self.postprocessing_secondary_variables_increments(x, delta_x, res_g)
         # Line search: backtracking to satisfy Armijo condition per field
@@ -515,7 +515,7 @@ class GeothermalWaterFlowModel(FlowModel):
         eq_xs_l_dof_idx = eq_idx_map['elimination_of_x_NaCl_gas_on_grids_[0]']
 
         res_tol_mass = self.params['nl_convergence_mass_tol_res']
-        res_tol_energy = self.params['nl_convergence_mass_tol_res']
+        res_tol_energy = self.params['nl_convergence_energy_tol_res']
         res_tol = np.max([res_tol_mass, res_tol_energy])
         res_p_norm = np.linalg.norm(res_g[eq_p_dof_idx])
         res_z_norm = np.linalg.norm(res_g[eq_z_dof_idx])
@@ -686,7 +686,7 @@ class GeothermalWaterFlowModel(FlowModel):
             ['elimination_of_x_NaCl_gas_on_grids_[0]'])
 
         res_tol_mass = self.params['nl_convergence_mass_tol_res']
-        res_tol_energy = self.params['nl_convergence_mass_tol_res']
+        res_tol_energy = self.params['nl_convergence_energy_tol_res']
         res_tol = np.max([res_tol_mass, res_tol_energy])
         res_p_norm = np.linalg.norm(res_g[eq_p_dof_idx])
         res_z_norm = np.linalg.norm(res_g[eq_z_dof_idx])
@@ -811,6 +811,7 @@ class GeothermalWaterFlowModel(FlowModel):
                 [eq_s_dof_idx, eq_xw_v_dof_idx, eq_xw_l_dof_idx, eq_xs_v_dof_idx,
                  eq_xs_l_dof_idx])
 
+            residual_norm = np.linalg.norm(residual)
             res_norm_mass = np.linalg.norm(residual[eq_mass_idx])
             res_norm_energy= np.linalg.norm(residual[eq_energy_idx])
             res_norm_temperature = np.linalg.norm(residual[eq_temperature_idx])
@@ -829,8 +830,10 @@ class GeothermalWaterFlowModel(FlowModel):
             diverged = False
 
             if converged:
-                print("Solution procedure is declared converged.")
-                print("Overall residual norm at x_k: ", np.linalg.norm(residual))
+                separator = "-" * 40
+                message = f"{separator}\n Solution procedure has successfully converged.\n{separator}"
+                print(message)
+                print("Overall residual norm: ", np.linalg.norm(residual))
                 print("Mass residual norm: ", res_norm_mass)
                 print("Energy residual norm: ", res_norm_energy)
                 print("Temperature residual norm: ", res_norm_temperature)
@@ -924,10 +927,10 @@ def draw_and_save_comparison(T_proj,T_vtk,S_proj,S_vtk,H_proj,H_vtk):
 draw_and_save_comparison(T_proj,T_vtk,S_proj,S_vtk,H_proj,H_vtk)
 
 # project solution as initial guess
-# x = model.equation_system.get_variable_values(iterate_index=0).copy()
-# delta_x = model.increment_from_projected_solution()
-# x_k = x + delta_x
-# model.equation_system.set_variable_values(values=x_k, iterate_index=0)
+x = model.equation_system.get_variable_values(iterate_index=0).copy()
+delta_x = model.increment_from_projected_solution()
+x_k = x + delta_x
+model.equation_system.set_variable_values(values=x_k, iterate_index=0)
 
 
 # print geometry
