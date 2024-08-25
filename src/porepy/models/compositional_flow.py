@@ -784,11 +784,11 @@ class TotalEnergyBalanceEquation_h(energy.EnergyBalanceEquations):
             op = pp.ad.sum_operator_list(
                 [
                     phase.specific_enthalpy(domains)
-                    * self.phase_mobility(phase, domains)
+                    * self.fractional_phase_mobility(phase, domains)
                     for phase in self.fluid_mixture.phases
                 ],
                 name="advected_enthalpy",
-            ) / self.total_mobility(domains)
+            )
 
         op.set_name("bc_advected_enthalpy")
         return op
@@ -2928,6 +2928,23 @@ class SolutionStrategyCF(
     def before_nonlinear_loop(self) -> None:
         self._stats.append([])
         super().before_nonlinear_loop()
+
+    def compute_residual_norm(
+        self, residual: np.ndarray, reference_residual: np.ndarray
+    ) -> float:
+        """Compute the residual norm for a nonlinear iteration.
+
+        Parameters:
+            residual: Residual of current iteration.
+            reference_residual: Reference residual value (initial residual expected),
+                allowing for definiting relative criteria.
+
+        Returns:
+            float: Residual norm.
+
+        """
+        residual_norm = np.linalg.norm(residual)
+        return residual_norm
 
 
 # endregion
