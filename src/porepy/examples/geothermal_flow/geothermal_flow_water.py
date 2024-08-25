@@ -65,6 +65,10 @@ class GeothermalWaterFlowModel(FlowModel):
         T_vals, _ = self.temperature_func(*triplet)
         return T_vals
 
+    def beta_mass_function(self, triplet) -> pp.ad.Operator:
+        beta_vals = self.beta_mass_func(*triplet)
+        return beta_vals
+
     def solve_linear_system(self) -> np.ndarray:
         """After calling the parent method, the global solution is calculated by Schur
         expansion."""
@@ -97,8 +101,20 @@ class GeothermalWaterFlowModel(FlowModel):
         eq_s_idx = np.concatenate([eq_t_dof_idx, eq_s_dof_idx, eq_xw_v_dof_idx, eq_xw_l_dof_idx, eq_xs_v_dof_idx, eq_xs_l_dof_idx])
         var_s_idx = np.concatenate([t_dof_idx, s_dof_idx, xw_v_dof_idx, xw_l_dof_idx, xs_v_dof_idx, xs_l_dof_idx])
 
-        tb = time.time()
         jac_g, res_g = self.linear_system
+        print("Overall residual norm at x_k: ", np.linalg.norm(res_g))
+        print("Pressure residual norm: ", np.linalg.norm(res_g[eq_p_dof_idx]))
+        print("Composition residual norm: ", np.linalg.norm(res_g[eq_z_dof_idx]))
+        print("Enthalpy residual norm: ", np.linalg.norm(res_g[eq_h_dof_idx]))
+        print("Temperature residual norm: ", np.linalg.norm(res_g[eq_t_dof_idx]))
+        print("Saturation residual norm: ", np.linalg.norm(res_g[eq_s_dof_idx]))
+        print("Xw_v residual norm: ", np.linalg.norm(res_g[eq_xw_v_dof_idx]))
+        print("Xw_l residual norm: ", np.linalg.norm(res_g[eq_xw_l_dof_idx]))
+        print("Xs_v residual norm: ", np.linalg.norm(res_g[eq_xs_v_dof_idx]))
+        print("Xs_l residual norm: ", np.linalg.norm(res_g[eq_xs_l_dof_idx]))
+
+
+        tb = time.time()
         delta_x = np.zeros_like(res_g)
         # delta_x = super().solve_linear_system().copy()
 
@@ -124,23 +140,13 @@ class GeothermalWaterFlowModel(FlowModel):
             # self.update_all_constitutive_expressions()
             # jac_g , res_g = self.equation_system.assemble(evaluate_jacobian=True)
             # self.linear_system = (jac_g , res_g)
-
-        print("Overall residual norm at x_k: ", np.linalg.norm(res_g))
-        print("Pressure residual norm: ", np.linalg.norm(res_g[eq_p_dof_idx]))
-        print("Composition residual norm: ", np.linalg.norm(res_g[eq_z_dof_idx]))
-        print("Enthalpy residual norm: ", np.linalg.norm(res_g[eq_h_dof_idx]))
-        print("Temperature residual norm: ", np.linalg.norm(res_g[eq_t_dof_idx]))
-        print("Saturation residual norm: ", np.linalg.norm(res_g[eq_s_dof_idx]))
-        print("Xw_v residual norm: ", np.linalg.norm(res_g[eq_xw_v_dof_idx]))
-        print("Xw_l residual norm: ", np.linalg.norm(res_g[eq_xw_l_dof_idx]))
-        print("Xs_v residual norm: ", np.linalg.norm(res_g[eq_xs_v_dof_idx]))
-        print("Xs_l residual norm: ", np.linalg.norm(res_g[eq_xs_l_dof_idx]))
         print("Elapsed time linear solve: ", te - tb)
         print("")
 
         # self.recompute_secondary_residuals(delta_x, res_g)
 
         self.postprocessing_overshoots(delta_x)
+        self.postprocessing_thermal_overshoots(delta_x)
 
         # def newton_increment_constraint(res_norm):
         #     if res_norm < 0.001:
@@ -194,7 +200,7 @@ class GeothermalWaterFlowModel(FlowModel):
                 field_to_skip.append(field_name)
         print('No line search performed on the fields: ', field_to_skip)
         max_searches = 10
-        beta = 2.0/3.0  # reduction factor for alpha
+        beta = np.pi / 4.0  # reduction factor for alpha
         c = 1.0e-6  # Armijo condition constant
         alpha = np.ones(9) # initial step size
         k = 0
@@ -417,6 +423,80 @@ class GeothermalWaterFlowModel(FlowModel):
         print("Elapsed time for postprocessing overshoots: ", te - tb)
         return
 
+    def postprocessing_thermal_overshoots(self, delta_x):
+        x0 = self.equation_system.get_variable_values(iterate_index=0)
+        p_dof_idx = self.equation_system.dofs_of(['pressure'])
+        z_dof_idx = self.equation_system.dofs_of(['z_NaCl'])
+        h_dof_idx = self.equation_system.dofs_of(['enthalpy'])
+        t_dof_idx = self.equation_system.dofs_of(['temperature'])
+        p_0 = x0[p_dof_idx]
+        z_0 = x0[z_dof_idx]
+        h_0 = x0[h_dof_idx]
+        t_0 = x0[t_dof_idx]
+
+        p_k = delta_x[p_dof_idx] + x0[p_dof_idx]
+        z_k = delta_x[z_dof_idx] + x0[z_dof_idx]
+        h_k = x0[h_dof_idx] # delayed enthalpy
+        par_points = np.array((z_k, h_k, p_k)).T
+        self.vtk_sampler.sample_at(par_points)
+
+        rho_v_k = self.vtk_sampler.sampled_could.point_data['Rho_v']
+        s_k = self.vtk_sampler.sampled_could.point_data['S_v']
+        Rho_k = self.vtk_sampler.sampled_could.point_data['Rho']
+        beta_mass_v = s_k * rho_v_k / Rho_k
+
+        multiphase_Q = np.logical_and(beta_mass_v > 0.0, beta_mass_v < 1.0)
+        multiphase_idx = np.where(multiphase_Q)[0]
+        if multiphase_idx.shape[0] > 0:
+            tb = time.time()
+            p0_red = p_0[multiphase_idx]
+            h0_red = h_0[multiphase_idx]
+            t0_red = h_0[multiphase_idx]
+            z0_red = z_0[multiphase_idx]
+            beta_red = beta_mass_v[multiphase_idx]
+            h, idx = self.bisection_method(p0_red, z0_red, beta_red)
+            if idx.shape[0] != 0:
+                print("Applying enthalpy correction.")
+                new_dh = h - h0_red[idx]
+                delta_x[h_dof_idx[multiphase_idx[idx]]] = new_dh
+            te = time.time()
+            print("Elapsed time for bisection enthalpy correction: ", te - tb)
+        return
+
+    def bisection_method(self, p, z, beta_target, tol=1e-2, max_iter=100):
+        a = (1.0e-5) * np.zeros_like(beta_target)
+        b = 4.0 * np.ones_like(beta_target)
+        f_res = lambda H_val: beta_target - self.beta_mass_function(
+            np.vstack([p, H_val, z]))
+
+        fa_times_fb = f_res(a) * f_res(b)
+        idx = np.where(fa_times_fb < 0.0)[0]
+        if idx.shape[0] == 0:
+            return np.empty_like(a), idx
+        else:
+            if np.any(np.logical_and(fa_times_fb > 0.0, np.isclose(fa_times_fb, 0.0))):
+                print("Bisection:: Some cells are ignored because fa_times_fb > 0.0 is true.")
+
+            f_res = lambda H_val: beta_target[idx] - self.beta_mass_function(
+                np.vstack([p[idx], H_val, z[idx]]))
+            a = a[idx]
+            b = b[idx]
+
+        for it in range(max_iter):
+            c = (a + b) / 2.0
+            f_c = f_res(c)
+
+            if np.all(np.logical_or(np.abs(f_c) < tol, np.abs(b - a) < tol)):
+                return c, idx
+
+            f_a = f_res(a)
+            idx_n = np.where(f_a * f_c < 0.0)
+            idx_p = np.where(np.logical_or(f_a * f_c > 0.0, np.isclose(f_a * f_c, 0.0)))
+            b[idx_n] = c[idx_n]
+            a[idx_p] = c[idx_p]
+
+        raise RuntimeError("Bisection:: Maximum number of iterations reached without convergence.")
+
     def postprocessing_secondary_variables_increments(self, x0, delta_x, res_g):
 
         eq_idx_map = self.equation_system.assembled_equation_indices
@@ -431,7 +511,7 @@ class GeothermalWaterFlowModel(FlowModel):
         eq_xs_v_dof_idx = eq_idx_map['elimination_of_x_NaCl_liq_on_grids_[0]']
         eq_xs_l_dof_idx = eq_idx_map['elimination_of_x_NaCl_gas_on_grids_[0]']
 
-        res_tol = 100.0 * self.params['nl_convergence_tol_res']
+        res_tol = 10.0 * self.params['nl_convergence_tol_res']
         res_p_norm = np.linalg.norm(res_g[eq_p_dof_idx])
         res_z_norm = np.linalg.norm(res_g[eq_z_dof_idx])
         res_h_norm = np.linalg.norm(res_g[eq_h_dof_idx])

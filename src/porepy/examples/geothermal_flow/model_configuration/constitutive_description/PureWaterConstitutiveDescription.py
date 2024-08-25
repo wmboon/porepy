@@ -274,6 +274,23 @@ class SecondaryEquations(SecondaryEquationsMixin):
             raise ValueError("There is a negative fraction.")
         return S_v, dS_v
 
+    def beta_mass_func(
+        self,
+        *thermodynamic_dependencies: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+
+        p, h, z_NaCl = thermodynamic_dependencies
+        assert len(p) == len(h) == len(z_NaCl)
+        par_points = np.array((z_NaCl, h, p)).T
+        self.vtk_sampler.sample_at(par_points)
+
+        # mass fraction
+        rho_v = self.vtk_sampler.sampled_could.point_data['Rho_v']
+        s_v = self.vtk_sampler.sampled_could.point_data['S_v']
+        Rho = self.vtk_sampler.sampled_could.point_data['Rho']
+        beta = s_v * rho_v / Rho
+        return beta
+
     def temperature_func(
         self,
         *thermodynamic_dependencies: np.ndarray,
