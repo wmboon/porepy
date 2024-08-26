@@ -48,7 +48,7 @@ params = {
     "nl_convergence_mass_tol_res": 1.0e-4,
     "nl_convergence_energy_tol_res": 1.0e-4,
     "nl_convergence_temperature_tol_res": 1.0,
-    "nl_convergence_fractions_tol_res": 1.0e-2,
+    "nl_convergence_fractions_tol_res": 9.0e-3,
     "max_iterations": 100,
 }
 
