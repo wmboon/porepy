@@ -18,7 +18,7 @@ M_scale = 1.0e-6
 day = 86400 #seconds in a day.
 year = 365.0 * day
 tf = 2000.0 * year # final time [2000 years]
-dt = 20.0 * year # time step size [1 years]
+dt = 2.0 * year # time step size [1 years]
 time_manager = pp.TimeManager(
     schedule=[0.0, tf],
     dt_init=dt,
@@ -45,10 +45,10 @@ params = {
     "prepare_simulation": False,
     "reduce_linear_system_q": False,
     "nl_convergence_tol": np.inf,
-    "nl_convergence_mass_tol_res": 2.0e-4,
-    "nl_convergence_energy_tol_res": 2.0e-4,
-    "nl_convergence_temperature_tol_res": 10.0,
-    "nl_convergence_fractions_tol_res": 1.0e-2,
+    "nl_convergence_mass_tol_res": 1.0e-4,
+    "nl_convergence_energy_tol_res": 1.0e-4,
+    "nl_convergence_temperature_tol_res": 0.1,
+    "nl_convergence_fractions_tol_res": 1.0e-3,
     "max_iterations": 100,
 }
 
@@ -148,25 +148,9 @@ class GeothermalWaterFlowModel(FlowModel):
         # self.recompute_secondary_residuals(delta_x, res_g)
 
         self.postprocessing_overshoots(delta_x)
-        # self.postprocessing_thermal_overshoots(delta_x)
-
-        # def newton_increment_constraint(res_norm):
-        #     if res_norm < 0.001:
-        #         return 1.0
-        #     elif 0.001 <= res_norm < np.pi:
-        #         return 1.0/np.pi
-        #     elif np.pi <= res_norm < 10.0*np.pi:
-        #         return 1.0 / res_norm
-        #     else:
-        #         return 1.0/10.0*np.pi
-        # delta_x *= newton_increment_constraint(np.linalg.norm(res_g))
-        # sol = self.increment_from_projected_solution()
-        # return delta_x
 
         tb = time.time()
         x = self.equation_system.get_variable_values(iterate_index=0).copy()
-        # self.postprocessing_secondary_variables_increments(x, delta_x, res_g)
-
         # self.postprocessing_secondary_variables_increments(x, delta_x, res_g)
         # Line search: backtracking to satisfy Armijo condition per field
 
@@ -202,8 +186,8 @@ class GeothermalWaterFlowModel(FlowModel):
             if np.linalg.norm(res_g[eq_idx]) < eps_tol:
                 field_to_skip.append(field_name)
         print('No line search performed on the fields: ', field_to_skip)
-        max_searches = 10
-        beta = np.pi / 6.0  # reduction factor for alpha
+        max_searches = 7
+        beta = np.pi / 8.0  # reduction factor for alpha
         c = 1.0e-6  # Armijo condition constant
         alpha = np.ones(9) # initial step size
         k = 0
@@ -249,8 +233,20 @@ class GeothermalWaterFlowModel(FlowModel):
         #     delta_x[dof_idx] *= alpha[field_idx]
         # adjusted increment
         delta_x = x_k - x
-        # if k == max_searches:
-        # self.postprocessing_secondary_variables_increments(x, delta_x, res_g_k)
+        if k == max_searches:
+            res_tol_mass = self.params['nl_convergence_mass_tol_res']
+            res_tol_energy = self.params['nl_convergence_energy_tol_res']
+            res_tol_fractions = self.params['nl_convergence_fractions_tol_res']
+            res_tol = np.max([res_tol_mass, res_tol_energy, res_tol_fractions])
+            res_mass_norm = np.linalg.norm(
+                res_g[np.concatenate([eq_p_dof_idx, eq_z_dof_idx])])
+            res_energy_norm = np.linalg.norm(res_g[eq_h_dof_idx])
+            res_fractions_norm = np.linalg.norm(res_g[eq_s_idx])
+            primary_residuals = [res_mass_norm, res_energy_norm, res_fractions_norm]
+            converged_state_Q = np.all(np.array(primary_residuals) < res_tol)
+            if converged_state_Q:
+                # this method aims to correct secondary variables
+                self.postprocessing_secondary_variables_increments(x, delta_x, res_g_k)
         self.equation_system.set_variable_values(values=x, iterate_index=0)
         te = time.time()
         print("Elapsed time for backtracking line search: ", te - tb)
@@ -442,7 +438,7 @@ class GeothermalWaterFlowModel(FlowModel):
 
         p_k = delta_x[p_dof_idx] + x0[p_dof_idx]
         z_k = delta_x[z_dof_idx] + x0[z_dof_idx]
-        h_k =(3.0/3.0) * x0[p_dof_idx] + (0.0/3.0) * x_n_m_one[h_dof_idx] # delayed enthalpy
+        h_k = delta_x[h_dof_idx] * x0[h_dof_idx]  # delayed enthalpy
         par_points = np.array((z_k, h_k, p_k)).T
         self.vtk_sampler.sample_at(par_points)
 
@@ -569,15 +565,15 @@ class GeothermalWaterFlowModel(FlowModel):
             delta_Xs_v = Xs_v_k - x0[xs_v_dof_idx]
             delta_Xs_l = Xs_l_k - x0[xs_l_dof_idx]
 
-            def newton_increment_constraint(res_norm):
-                if res_norm < 0.01:
-                    return 1.0
-                elif 0.01 <= res_norm < np.pi:
-                    return 1.0/np.pi
-                elif np.pi <= res_norm < 10.0*np.pi:
-                    return 1.0 / res_norm
-                else:
-                    return 1.0/10.0*np.pi
+            # def newton_increment_constraint(res_norm):
+            #     if res_norm < 0.01:
+            #         return 1.0
+            #     elif 0.01 <= res_norm < np.pi:
+            #         return 1.0/np.pi
+            #     elif np.pi <= res_norm < 10.0*np.pi:
+            #         return 1.0 / res_norm
+            #     else:
+            #         return 1.0/10.0*np.pi
 
             deltas = [delta_t,delta_s,delta_Xw_v,delta_Xw_l,delta_Xs_v,delta_Xs_l]
             dofs_idx = [t_dof_idx,s_dof_idx,xw_v_dof_idx,xw_l_dof_idx,xs_v_dof_idx,xs_l_dof_idx]
@@ -587,8 +583,8 @@ class GeothermalWaterFlowModel(FlowModel):
                     continue
                 delta = deltas[k_field]
                 dof_idx = dofs_idx[k_field]
-                alpha_scale = newton_increment_constraint(secondary_residuals[k_field])
-                delta_x[dof_idx] = delta * alpha_scale
+                # alpha_scale = newton_increment_constraint(secondary_residuals[k_field])
+                # delta_x[dof_idx] = delta * alpha_scale
                 delta_x[dof_idx] = delta
             te = time.time()
             print("Elapsed time for postprocessing secondary increments: ", te - tb)
