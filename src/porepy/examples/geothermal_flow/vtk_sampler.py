@@ -89,8 +89,8 @@ class VTKSampler:
     def sample_at(self, points):
         if self.mutex_state and self.sampled_could is not None:
             return
-        points = self._apply_conversion_factor(points)
-        points = self._apply_translation_factor(points)
+        self._apply_conversion_factor(points)
+        self._apply_translation_factor(points)
 
         point_cloud = pyvista.PolyData(points)
         self.sampled_could = point_cloud.sample(self._search_space)
@@ -108,12 +108,12 @@ class VTKSampler:
     def _apply_conversion_factor(self, points):
         for i, scale in enumerate(self.conversion_factors):
             points[:, i] *= scale
-        return points
+        return
 
     def _apply_translation_factor(self, points):
         for i, translation in enumerate(self.translation_factors):
             points[:, i] += translation
-        return points
+        return
 
     def _apply_conversion_factor_on_gradients(self):
         for name, grad in self.sampled_could.point_data.items():
