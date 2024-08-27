@@ -7,10 +7,12 @@ import numpy as np
 from model_configuration.DConfigSteamWaterPhasesLowPa import (
     DriesnerWaterFlowModel as FlowModel,
 )
+
 from vtk_sampler import VTKSampler
 from thermo import FlashPureVLS, IAPWS95Liquid, IAPWS95Gas, iapws_constants, iapws_correlations
 import matplotlib.pyplot as plt
 import porepy as pp
+from porepy.models.compositional_flow import update_phase_properties
 
 # scale
 M_scale = 1.0e-6
@@ -802,6 +804,50 @@ class GeothermalWaterFlowModel(FlowModel):
         )
 
         return residual_norm, nonlinear_increment_norm, converged, diverged
+
+    def update_secondary_quantities(self) -> None:
+
+        # the dependencies for this model are all paremetrized with the same triplet
+        # X = (pressure, enthalpy, overall_composition)
+        # collect all dependencies at once
+        self.vtk_sampler.mutex_state = False
+        grid_id_to_dependencies = {}
+        for _, expr, func, domains, _ in self._constitutive_eliminations.values():
+            for g in domains:
+                X = [x([g]).value(self.equation_system) for x in expr._dependencies]
+                grid_id_to_dependencies[g.id] = X
+        P, H, Z = grid_id_to_dependencies[0]
+        par_points = np.array((Z, H, P)).T
+        self.vtk_sampler.sample_at(par_points)
+        self.vtk_sampler.mutex_state = True
+        self.update_all_constitutive_expressions()
+        self.update_thermodynamic_properties_of_phases()
+        self.vtk_sampler.mutex_state = False
+
+    def update_all_constitutive_expressions(self) -> None:
+        ni = self.iterate_indices.size
+        for _, expr, func, domains, _ in self._constitutive_eliminations.values():
+            for g in domains:
+                X = [x([g]).value(self.equation_system) for x in expr._dependencies]
+
+                vals, diffs = func(*X)
+
+                expr.progress_iterate_values_on_grid(vals, g, depth=ni)
+                # NOTE with depth=0, no shift in iterate sense is performed
+                expr.progress_iterate_derivatives_on_grid(diffs, g)
+
+    def update_thermodynamic_properties_of_phases(self) -> None:
+
+        subdomains = self.mdg.subdomains()
+        for phase in self.fluid_mixture.phases:
+            dep_vals = [
+                d(subdomains).value(self.equation_system)
+                for d in self.dependencies_of_phase_properties(phase)
+            ]
+            state = phase.compute_properties(*dep_vals)
+            # Set current iterate indices of values and derivatives
+            update_phase_properties(phase, state)
+
 
 # Instance of the computational model
 model = GeothermalWaterFlowModel(params)
