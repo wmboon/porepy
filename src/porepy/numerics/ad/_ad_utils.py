@@ -259,7 +259,7 @@ def uniquify_discretization_list(
             # discretization (if not copy, this may happen if
             # the key-discr combination is encountered a second time and the
             # code enters the if part of this if-else).
-            grid_likes = discr.subdomains + discr.interfaces
+            grid_likes = discr.subdomains.copy() + discr.interfaces.copy()
             unique_discr_grids[discr._discr] = grid_likes
 
     return unique_discr_grids
