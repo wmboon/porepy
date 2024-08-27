@@ -238,6 +238,7 @@ class GeothermalWaterFlowModel(FlowModel):
         #     delta_x[dof_idx] *= alpha[field_idx]
         # adjusted increment
         delta_x = x_k - x
+        self.equation_system.set_variable_values(values=x, iterate_index=0)
         # self.postprocessing_thermal_overshoots(delta_x)
         self.rectify_secondary_fields(delta_x)
         # if k == max_searches:
@@ -254,7 +255,7 @@ class GeothermalWaterFlowModel(FlowModel):
         #     if converged_state_Q:
         #         # this method aims to correct secondary variables
         #         self.postprocessing_secondary_variables_increments(x, delta_x, res_g_k)
-        self.equation_system.set_variable_values(values=x, iterate_index=0)
+
         te = time.time()
         print("Elapsed time for backtracking line search: ", te - tb)
         print("End of solution procedure")
