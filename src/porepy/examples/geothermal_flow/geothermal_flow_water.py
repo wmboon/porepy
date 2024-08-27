@@ -132,7 +132,7 @@ class GeothermalWaterFlowModel(FlowModel):
         delta_x[var_p_idx] = delta_x_p
 
         # equilibrate secondary fields
-        # self.rectify_secondary_fields(delta_x)
+        self.rectify_secondary_fields(delta_x)
         # delta_x[var_s_idx] = -1.0 * res_g[eq_s_idx]
 
         reduce_linear_system_q = self.params.get("reduce_linear_system_q", False)
@@ -154,110 +154,112 @@ class GeothermalWaterFlowModel(FlowModel):
 
         self.postprocessing_overshoots(delta_x)
 
-        tb = time.time()
-        x = self.equation_system.get_variable_values(iterate_index=0).copy()
-        # self.postprocessing_secondary_variables_increments(x, delta_x, res_g)
-        # Line search: backtracking to satisfy Armijo condition per field
+        line_search_Q = False
+        if line_search_Q:
+            tb = time.time()
+            x = self.equation_system.get_variable_values(iterate_index=0).copy()
+            # self.postprocessing_secondary_variables_increments(x, delta_x, res_g)
+            # Line search: backtracking to satisfy Armijo condition per field
 
-        dofs_idx = {
-            'p': (eq_p_dof_idx, p_dof_idx),
-            'z': (eq_z_dof_idx, z_dof_idx),
-            'h': (eq_h_dof_idx, h_dof_idx),
-            't': (eq_t_dof_idx, t_dof_idx),
-            's': (eq_s_dof_idx, s_dof_idx),
-            'xw_v': (eq_xw_v_dof_idx, xw_v_dof_idx),
-            'xw_l': (eq_xw_l_dof_idx, xw_l_dof_idx),
-            'xs_v': (eq_xs_v_dof_idx, xs_v_dof_idx),
-            'xs_l': (eq_xs_l_dof_idx, xs_l_dof_idx),
-        }
+            dofs_idx = {
+                'p': (eq_p_dof_idx, p_dof_idx),
+                'z': (eq_z_dof_idx, z_dof_idx),
+                'h': (eq_h_dof_idx, h_dof_idx),
+                't': (eq_t_dof_idx, t_dof_idx),
+                's': (eq_s_dof_idx, s_dof_idx),
+                'xw_v': (eq_xw_v_dof_idx, xw_v_dof_idx),
+                'xw_l': (eq_xw_l_dof_idx, xw_l_dof_idx),
+                'xs_v': (eq_xs_v_dof_idx, xs_v_dof_idx),
+                'xs_l': (eq_xs_l_dof_idx, xs_l_dof_idx),
+            }
 
-        fields_idx = {
-            'p': 0,
-            'z': 1,
-            'h': 2,
-            't': 3,
-            's': 4,
-            'xw_v': 5,
-            'xw_l': 6,
-            'xs_v': 7,
-            'xs_l': 8,
-        }
+            fields_idx = {
+                'p': 0,
+                'z': 1,
+                'h': 2,
+                't': 3,
+                's': 4,
+                'xw_v': 5,
+                'xw_l': 6,
+                'xs_v': 7,
+                'xs_l': 8,
+            }
 
-        eps_tol = 0.0
-        field_to_skip = []
-        for item in fields_idx.items():
-            field_name, field_idx = item
-            eq_idx, _ = dofs_idx[field_name]
-            if np.linalg.norm(res_g[eq_idx]) < eps_tol:
-                field_to_skip.append(field_name)
-        print('No line search performed on the fields: ', field_to_skip)
-        max_searches = 10
-        beta = np.pi / 8.0  # reduction factor for alpha
-        c = 1.0e-6  # Armijo condition constant
-        alpha = np.ones(9) # initial step size
-        k = 0
-        x_k = x + delta_x
-
-        Armijo_condition = [True, True, True, True, True, True, True, True, True]
-        for i, field_name in enumerate(fields_idx.keys()):
-            if field_name in field_to_skip:
-                Armijo_condition[i] = False
-        Armijo_condition = np.array(Armijo_condition)
-        while np.any(Armijo_condition) and (len(field_to_skip) < 5):
+            eps_tol = 0.0
+            field_to_skip = []
             for item in fields_idx.items():
                 field_name, field_idx = item
-                if field_name in field_to_skip:
-                    continue
-                _, dof_idx = dofs_idx[field_name]
-                x_k[dof_idx] = x[dof_idx] + alpha[field_idx] * delta_x[dof_idx]
-            # set new state
-            self.equation_system.set_variable_values(values=x_k, iterate_index=0)
-            self.update_secondary_quantities()
-            self.update_discretizations()
-            res_g_k = self.equation_system.assemble(evaluate_jacobian=False)
-            for item in fields_idx.items():
-                field_name, field_idx = item
-                if field_name in field_to_skip:
-                    continue
-                eq_idx, dof_idx = dofs_idx[field_name]
-                # Armijo_condition[field_idx] = np.any(np.linalg.norm(res_g_k[eq_idx]) > np.linalg.norm(res_g[eq_idx]) + c * alpha[field_idx] * np.dot(res_g[eq_idx], delta_x[dof_idx]))
-                Armijo_condition[field_idx] = np.any(np.linalg.norm(res_g_k) > np.linalg.norm(res_g) + c * np.mean(alpha) * np.dot(res_g, delta_x))
-                if Armijo_condition[field_idx]:
-                    alpha[field_idx] *= beta
-            k+=1
-            if k == max_searches:
-                print("The backtracking line search has reached the maximum number of iterations.")
-                break
-        print("alphas per field: ", alpha)
-        # # Scaled the increment per field
-        # for item in fields_idx.items():
-        #     field_name, field_idx = item
-        #     if field_name in field_to_skip:
-        #         continue
-        #     _, dof_idx = dofs_idx[field_name]
-        #     delta_x[dof_idx] *= alpha[field_idx]
-        # adjusted increment
-        delta_x = x_k - x
-        self.equation_system.set_variable_values(values=x, iterate_index=0)
-        # self.postprocessing_thermal_overshoots(delta_x)
-        self.rectify_secondary_fields(delta_x)
-        # if k == max_searches:
-        #     res_tol_mass = self.params['nl_convergence_mass_tol_res']
-        #     res_tol_energy = self.params['nl_convergence_energy_tol_res']
-        #     res_tol_fractions = self.params['nl_convergence_fractions_tol_res']
-        #     res_tol = np.max([res_tol_mass, res_tol_energy, res_tol_fractions])
-        #     res_mass_norm = np.linalg.norm(
-        #         res_g[np.concatenate([eq_p_dof_idx, eq_z_dof_idx])])
-        #     res_energy_norm = np.linalg.norm(res_g[eq_h_dof_idx])
-        #     res_fractions_norm = np.linalg.norm(res_g[eq_s_idx])
-        #     primary_residuals = [res_mass_norm, res_energy_norm, res_fractions_norm]
-        #     converged_state_Q = np.all(np.array(primary_residuals) < res_tol)
-        #     if converged_state_Q:
-        #         # this method aims to correct secondary variables
-        #         self.postprocessing_secondary_variables_increments(x, delta_x, res_g_k)
+                eq_idx, _ = dofs_idx[field_name]
+                if np.linalg.norm(res_g[eq_idx]) < eps_tol:
+                    field_to_skip.append(field_name)
+            print('No line search performed on the fields: ', field_to_skip)
+            max_searches = 10
+            beta = np.pi / 8.0  # reduction factor for alpha
+            c = 1.0e-6  # Armijo condition constant
+            alpha = np.ones(9) # initial step size
+            k = 0
+            x_k = x + delta_x
 
-        te = time.time()
-        print("Elapsed time for backtracking line search: ", te - tb)
+            Armijo_condition = [True, True, True, True, True, True, True, True, True]
+            for i, field_name in enumerate(fields_idx.keys()):
+                if field_name in field_to_skip:
+                    Armijo_condition[i] = False
+            Armijo_condition = np.array(Armijo_condition)
+            while np.any(Armijo_condition) and (len(field_to_skip) < 5):
+                for item in fields_idx.items():
+                    field_name, field_idx = item
+                    if field_name in field_to_skip:
+                        continue
+                    _, dof_idx = dofs_idx[field_name]
+                    x_k[dof_idx] = x[dof_idx] + alpha[field_idx] * delta_x[dof_idx]
+                # set new state
+                self.equation_system.set_variable_values(values=x_k, iterate_index=0)
+                self.update_secondary_quantities()
+                self.update_discretizations()
+                res_g_k = self.equation_system.assemble(evaluate_jacobian=False)
+                for item in fields_idx.items():
+                    field_name, field_idx = item
+                    if field_name in field_to_skip:
+                        continue
+                    eq_idx, dof_idx = dofs_idx[field_name]
+                    # Armijo_condition[field_idx] = np.any(np.linalg.norm(res_g_k[eq_idx]) > np.linalg.norm(res_g[eq_idx]) + c * alpha[field_idx] * np.dot(res_g[eq_idx], delta_x[dof_idx]))
+                    Armijo_condition[field_idx] = np.any(np.linalg.norm(res_g_k) > np.linalg.norm(res_g) + c * np.mean(alpha) * np.dot(res_g, delta_x))
+                    if Armijo_condition[field_idx]:
+                        alpha[field_idx] *= beta
+                k+=1
+                if k == max_searches:
+                    print("The backtracking line search has reached the maximum number of iterations.")
+                    break
+            print("alphas per field: ", alpha)
+            # # Scaled the increment per field
+            # for item in fields_idx.items():
+            #     field_name, field_idx = item
+            #     if field_name in field_to_skip:
+            #         continue
+            #     _, dof_idx = dofs_idx[field_name]
+            #     delta_x[dof_idx] *= alpha[field_idx]
+            # adjusted increment
+            delta_x = x_k - x
+            self.equation_system.set_variable_values(values=x, iterate_index=0)
+            # self.postprocessing_thermal_overshoots(delta_x)
+            self.rectify_secondary_fields(delta_x)
+            # if k == max_searches:
+            #     res_tol_mass = self.params['nl_convergence_mass_tol_res']
+            #     res_tol_energy = self.params['nl_convergence_energy_tol_res']
+            #     res_tol_fractions = self.params['nl_convergence_fractions_tol_res']
+            #     res_tol = np.max([res_tol_mass, res_tol_energy, res_tol_fractions])
+            #     res_mass_norm = np.linalg.norm(
+            #         res_g[np.concatenate([eq_p_dof_idx, eq_z_dof_idx])])
+            #     res_energy_norm = np.linalg.norm(res_g[eq_h_dof_idx])
+            #     res_fractions_norm = np.linalg.norm(res_g[eq_s_idx])
+            #     primary_residuals = [res_mass_norm, res_energy_norm, res_fractions_norm]
+            #     converged_state_Q = np.all(np.array(primary_residuals) < res_tol)
+            #     if converged_state_Q:
+            #         # this method aims to correct secondary variables
+            #         self.postprocessing_secondary_variables_increments(x, delta_x, res_g_k)
+
+            te = time.time()
+            print("Elapsed time for backtracking line search: ", te - tb)
         print("End of solution procedure")
         print("")
         print("")
