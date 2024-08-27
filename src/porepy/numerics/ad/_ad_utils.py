@@ -259,7 +259,7 @@ def uniquify_discretization_list(
             # discretization (if not copy, this may happen if
             # the key-discr combination is encountered a second time and the
             # code enters the if part of this if-else).
-            grid_likes = discr.subdomains.copy() + discr.interfaces.copy()
+            grid_likes = discr.subdomains + discr.interfaces
             unique_discr_grids[discr._discr] = grid_likes
 
     return unique_discr_grids
@@ -389,6 +389,7 @@ def set_solution_values(
             data[loc][name][index] += values
         else:
             data[loc][name][index] = values.copy()
+            del values
 
 
 def get_solution_values(
@@ -438,7 +439,7 @@ def get_solution_values(
     loc, index = loc_index[0]
 
     try:
-        value = data[loc][name][index].copy()
+        value = data[loc][name][index]
     except KeyError as err:
         raise KeyError(
             f"No values stored for {name} at {(loc, index)}: {str(err)}."
@@ -511,6 +512,7 @@ def shift_solution_values(
 
     for i in range_:
         data[location][name][i] = data[location][name][i - 1].copy()
+        del data[location][name][i - 1]
 
 
 class MergedOperator(operators.Operator):
