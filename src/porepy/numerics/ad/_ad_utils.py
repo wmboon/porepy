@@ -389,7 +389,6 @@ def set_solution_values(
             data[loc][name][index] += values
         else:
             data[loc][name][index] = values.copy()
-            del values
 
 
 def get_solution_values(
@@ -439,7 +438,7 @@ def get_solution_values(
     loc, index = loc_index[0]
 
     try:
-        value = data[loc][name][index]
+        value = data[loc][name][index].copy()
     except KeyError as err:
         raise KeyError(
             f"No values stored for {name} at {(loc, index)}: {str(err)}."
@@ -512,7 +511,6 @@ def shift_solution_values(
 
     for i in range_:
         data[location][name][i] = data[location][name][i - 1].copy()
-        del data[location][name][i - 1]
 
 
 class MergedOperator(operators.Operator):
