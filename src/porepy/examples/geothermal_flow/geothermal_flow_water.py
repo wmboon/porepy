@@ -154,7 +154,7 @@ class GeothermalWaterFlowModel(FlowModel):
 
         self.postprocessing_overshoots(delta_x)
 
-        line_search_Q = False
+        line_search_Q = True
         if line_search_Q:
             tb = time.time()
             x = self.equation_system.get_variable_values(iterate_index=0).copy()
