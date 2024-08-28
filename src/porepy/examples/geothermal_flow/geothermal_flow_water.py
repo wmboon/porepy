@@ -16,11 +16,11 @@ from porepy.models.compositional_flow import update_phase_properties
 
 # scale
 M_scale = 1.0e-6
-
+s_tol = 7.0
 day = 86400 #seconds in a day.
 year = 365.0 * day
 tf = 2000.0 * year # final time [2000 years]
-dt = 2000.0 * year # time step size [1 years]
+dt = 1.0 * year # time step size [1 years]
 time_manager = pp.TimeManager(
     schedule=[0.0, tf],
     dt_init=dt,
@@ -47,10 +47,10 @@ params = {
     "prepare_simulation": False,
     "reduce_linear_system_q": False,
     "nl_convergence_tol": np.inf,
-    "nl_convergence_mass_tol_res": 1.0e-4,
-    "nl_convergence_energy_tol_res": 1.0e-4,
-    "nl_convergence_temperature_tol_res": 1.0,
-    "nl_convergence_fractions_tol_res": 9.0e-3,
+    "nl_convergence_mass_tol_res": s_tol * 1.0e-5,
+    "nl_convergence_energy_tol_res": s_tol * 1.0e-4,
+    "nl_convergence_temperature_tol_res": s_tol * 0.1,
+    "nl_convergence_fractions_tol_res": s_tol * 1.0e-3,
     "max_iterations": 100,
 }
 
@@ -194,7 +194,7 @@ class GeothermalWaterFlowModel(FlowModel):
                     field_to_skip.append(field_name)
             print('No line search performed on the fields: ', field_to_skip)
             max_searches = 10
-            beta = np.pi / 8.0  # reduction factor for alpha
+            beta = 2.0/ 3.0  # reduction factor for alpha
             c = 1.0e-6  # Armijo condition constant
             alpha = np.ones(9) # initial step size
             k = 0
@@ -268,9 +268,10 @@ class GeothermalWaterFlowModel(FlowModel):
     def load_and_project_reference_data(self):
 
         # doi: 10.1111/gfl.12080
-        p_data = np.genfromtxt('pressure_data_fig6A.csv', delimiter=',', skip_header=1)
-        t_data = np.genfromtxt('temperature_data_fig6A.csv', delimiter=',', skip_header=1)
-        sl_data = np.genfromtxt('saturation_liq_data_fig6B.csv', delimiter=',', skip_header=1)
+        file_prefix = 'verification_low_salt_content/'
+        p_data = np.genfromtxt(file_prefix + 'fig_6a_pressure.csv', delimiter=',', skip_header=1)
+        t_data = np.genfromtxt(file_prefix+ 'fig_6a_temperature.csv', delimiter=',', skip_header=1)
+        sl_data = np.genfromtxt(file_prefix + 'fig_6b_liquid_saturation.csv', delimiter=',', skip_header=1)
 
         p_data[:, 0] *= 1.0e3
         t_data[:, 0] *= 1.0e3
@@ -898,10 +899,11 @@ S_vtk = model.vtk_sampler.sampled_could.point_data['S_l']
 
 def draw_and_save_comparison(T_proj,T_vtk,S_proj,S_vtk,H_proj,H_vtk):
     # plot the data
+    file_prefix = 'verification_low_salt_content/'
     figure_data = {
-        'T': ('temperature_at_2000_years.png', 'T - Fig. 6A P. WEIS (2014)', 'T - VTKsample + GEOMAR'),
-        'S': ('liquid_saturation_at_2000_years.png', 's_l - Fig. 6B P. WEIS (2014)', 's_l - VTKsample + GEOMAR'),
-        'H': ('enthalpy_at_2000_years.png', 'H - Fig. 6A P. WEIS (2014)', 'H - VTKsample + GEOMAR'),
+        'T': (file_prefix + 'temperature_at_2000_years.png', 'T - Fig. 6A P. WEIS (2014)', 'T - VTKsample + GEOMAR'),
+        'S': (file_prefix + 'liquid_saturation_at_2000_years.png', 's_l - Fig. 6B P. WEIS (2014)', 's_l - VTKsample + GEOMAR'),
+        'H': (file_prefix + 'enthalpy_at_2000_years.png', 'H - Fig. 6A P. WEIS (2014)', 'H - VTKsample + GEOMAR'),
     }
     fields_data = {
         'T': (T_proj,T_vtk),
@@ -932,12 +934,12 @@ def draw_and_save_comparison(T_proj,T_vtk,S_proj,S_vtk,H_proj,H_vtk):
 draw_and_save_comparison(T_proj,T_vtk,S_proj,S_vtk,H_proj,H_vtk)
 
 # project solution as initial guess
-x = model.equation_system.get_variable_values(iterate_index=0).copy()
-delta_x = model.increment_from_projected_solution()
-x_k = x + delta_x
-model.equation_system.set_variable_values(values=x_k, iterate_index=0)
+# x = model.equation_system.get_variable_values(iterate_index=0).copy()
+# delta_x = model.increment_from_projected_solution()
+# x_k = x + delta_x
+# model.equation_system.set_variable_values(values=x_k, iterate_index=0)
 
-
+# assert False
 # print geometry
 model.exporter.write_vtu()
 tb = time.time()
@@ -965,11 +967,12 @@ T_num = model.equation_system.get_variable_values(['temperature'],time_step_inde
 
 def draw_and_save_comparison_numeric(T_proj,T_num,S_proj,S_num,H_proj,H_num,P_proj,P_num):
     # plot the data
+    file_prefix = 'verification_low_salt_content/'
     figure_data = {
-        'T': ('pp_temperature_at_2000_years.png', 'T - Fig. 6A P. WEIS (2014)', 'T - numeric + GEOMAR'),
-        'S': ('pp_liquid_saturation_at_2000_years.png', 's_l - Fig. 6B P. WEIS (2014)', 's_l - numeric + GEOMAR'),
-        'H': ('pp_enthalpy_at_2000_years.png', 'H - Fig. 6A P. WEIS (2014)', 'H - numeric '),
-        'P': ('pp_pressure_at_2000_years.png', 'H - Fig. 6A P. WEIS (2014)', 'P - numeric '),
+        'T': (file_prefix + 'numeric_temperature_at_2000_years.png', 'T - Fig. 6A P. WEIS (2014)', 'T - numeric + GEOMAR'),
+        'S': (file_prefix +'numeric_liquid_saturation_at_2000_years.png', 's_l - Fig. 6B P. WEIS (2014)', 's_l - numeric + GEOMAR'),
+        'H': (file_prefix +'numeric_enthalpy_at_2000_years.png', 'H - Fig. 6A P. WEIS (2014)', 'H - numeric '),
+        'P': (file_prefix +'numeric_pressure_at_2000_years.png', 'H - Fig. 6A P. WEIS (2014)', 'P - numeric '),
     }
     fields_data = {
         'T': (T_proj,T_num),

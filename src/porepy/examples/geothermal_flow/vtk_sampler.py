@@ -133,8 +133,10 @@ class VTKSampler:
         del point_cloud
 
     def release_memory(self):
-        self.__release_memory_of(self._search_space)
-        self.__release_memory_of(self._boundary_surface)
+        self._search_space.clear_data()
+        self._boundary_surface.clear_data()
+        del self._search_space
+        del self._boundary_surface
 
     def __build_search_space(self):
         tb = time.time()
