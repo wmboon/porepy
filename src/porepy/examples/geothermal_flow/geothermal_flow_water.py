@@ -31,7 +31,7 @@ time_manager = pp.TimeManager(
 
 solid_constants = pp.SolidConstants(
     {
-        "permeability": 1.0e-15,
+        "permeability": 1.0e-14,
         "porosity": 0.1,
         "thermal_conductivity": 2.0*M_scale,
         "density": 2700.0,
