@@ -199,7 +199,7 @@ class GeothermalWaterFlowModel(FlowModel):
             max_searches = 10
             beta = 2.0/3.0  # reduction factor for alpha
             c = 1.0e-6  # Armijo condition constant
-            alpha = np.ones(9) # initial step size
+            alpha = np.ones(3) # initial step size
             k = 0
             x_k = x + delta_x
 
