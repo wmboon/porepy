@@ -49,7 +49,7 @@ params = {
     "reduce_linear_system_q": False,
     "nl_convergence_tol": np.inf,
     "nl_convergence_mass_tol_res": s_tol * 1.0e-5,
-    "nl_convergence_energy_tol_res": s_tol * 1.0e-3,
+    "nl_convergence_energy_tol_res": s_tol * 1.0e-4,
     "nl_convergence_temperature_tol_res": s_tol * 1.0e-3,
     "nl_convergence_fractions_tol_res": s_tol * 1.0e-3,
     "max_iterations": 100,
