@@ -21,7 +21,7 @@ day = 86400 #seconds in a day.
 year = 365.0 * day
 tf = 2000.0 * year # final time [2000 years]
 # dt = 2000.0 * year # time step size [2000 years]
-dt = (2000.0/1200.0) * year # time step size [1.666 years]
+dt = 1.0 * year # time step size [1.0 years]
 time_manager = pp.TimeManager(
     schedule=[0.0, tf],
     dt_init=dt,
@@ -58,9 +58,11 @@ params = {
 class GeothermalWaterFlowModel(FlowModel):
 
     def after_nonlinear_convergence(self, iteration_counter) -> None:
+        day = 86400
+        year = 365.0 * day
         super().after_nonlinear_convergence(iteration_counter)
         print("Number of iterations: ", iteration_counter)
-        print("Time value: ", self.time_manager.time)
+        print("Time value: ", self.time_manager.time / year)
         print("Time index: ", self.time_manager.time_index)
         print("")
 
