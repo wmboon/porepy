@@ -16,12 +16,12 @@ from porepy.models.compositional_flow import update_phase_properties
 
 # scale
 M_scale = 1.0e-6
-s_tol = 5.0
+s_tol = 9.0
 day = 86400 #seconds in a day.
 year = 365.0 * day
 tf = 2000.0 * year # final time [2000 years]
-dt = 2000.0 * year # time step size [2000 years]
-# dt = 1.0 * year # time step size [1.0 years]
+# dt = 2000.0 * year # time step size [2000 years]
+dt = 1.0 * year # time step size [1.0 years]
 time_manager = pp.TimeManager(
     schedule=[0.0, tf],
     dt_init=dt,
@@ -920,10 +920,10 @@ def draw_and_save_comparison(T_proj,T_vtk,S_proj,S_vtk,H_proj,H_vtk):
 draw_and_save_comparison(T_proj,T_vtk,S_proj,S_vtk,H_proj,H_vtk)
 
 # project solution as initial guess
-x = model.equation_system.get_variable_values(iterate_index=0).copy()
-delta_x = model.increment_from_projected_solution()
-x_k = x + delta_x
-model.equation_system.set_variable_values(values=x_k, iterate_index=0)
+# x = model.equation_system.get_variable_values(iterate_index=0).copy()
+# delta_x = model.increment_from_projected_solution()
+# x_k = x + delta_x
+# model.equation_system.set_variable_values(values=x_k, iterate_index=0)
 
 # assert False
 # print geometry
