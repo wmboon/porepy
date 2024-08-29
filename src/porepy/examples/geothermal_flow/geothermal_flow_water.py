@@ -16,11 +16,12 @@ from porepy.models.compositional_flow import update_phase_properties
 
 # scale
 M_scale = 1.0e-6
-s_tol = 20.0
+s_tol = 10.0
 day = 86400 #seconds in a day.
 year = 365.0 * day
 tf = 2000.0 * year # final time [2000 years]
-dt = 1.0 * year # time step size [1 years]
+dt = 2000.0 * year # time step size [2000 years]
+# dt = (2000.0/1200.0) * year # time step size [1.666 years]
 time_manager = pp.TimeManager(
     schedule=[0.0, tf],
     dt_init=dt,
@@ -31,7 +32,7 @@ time_manager = pp.TimeManager(
 
 solid_constants = pp.SolidConstants(
     {
-        "permeability": 1.0e-14,
+        "permeability": 1.0e-15,
         "porosity": 0.1,
         "thermal_conductivity": 2.0*M_scale,
         "density": 2700.0,
@@ -48,8 +49,8 @@ params = {
     "reduce_linear_system_q": False,
     "nl_convergence_tol": np.inf,
     "nl_convergence_mass_tol_res": s_tol * 1.0e-5,
-    "nl_convergence_energy_tol_res": s_tol * 1.0e-4,
-    "nl_convergence_temperature_tol_res": s_tol * 0.1,
+    "nl_convergence_energy_tol_res": s_tol * 1.0e-5,
+    "nl_convergence_temperature_tol_res": s_tol * 1.0e-3,
     "nl_convergence_fractions_tol_res": s_tol * 1.0e-3,
     "max_iterations": 100,
 }
@@ -128,7 +129,7 @@ class GeothermalWaterFlowModel(FlowModel):
         jac_p = jac_g[eq_p_idx[:, None], var_p_idx]
         res_p = res_g[eq_p_idx]
         self.linear_system = (jac_p, res_p)
-        delta_x_p = super().solve_linear_system().copy()
+        delta_x_p = super().solve_linear_system()
         delta_x[var_p_idx] = delta_x_p
 
         # equilibrate secondary fields
@@ -193,8 +194,8 @@ class GeothermalWaterFlowModel(FlowModel):
                 if np.linalg.norm(res_g[eq_idx]) < eps_tol:
                     field_to_skip.append(field_name)
             print('No line search performed on the fields: ', field_to_skip)
-            max_searches = 10
-            beta = 2.0/ 3.0  # reduction factor for alpha
+            max_searches = 25
+            beta = 2.0/3.0  # reduction factor for alpha
             c = 1.0e-6  # Armijo condition constant
             alpha = np.ones(9) # initial step size
             k = 0
@@ -856,10 +857,10 @@ class GeothermalWaterFlowModel(FlowModel):
 # Instance of the computational model
 model = GeothermalWaterFlowModel(params)
 
-parametric_space_ref_level = 0
+parametric_space_ref_level = 2
 file_name_prefix = "model_configuration/constitutive_description/driesner_vtk_files/"
 file_name_phz = (
-    file_name_prefix + "XHP_l" + str(parametric_space_ref_level) + "_modified_iapws.vtk"
+    file_name_prefix + "XHP_l" + str(parametric_space_ref_level) + "_modified_low_salt_content.vtk"
 )
 file_name_ptz = (
     file_name_prefix + "XTP_l" + str(parametric_space_ref_level) + "_modified.vtk"
@@ -868,7 +869,7 @@ file_name_ptz = (
 constant_extended_fields = ['S_v', 'S_l', 'S_h', 'Xl', 'Xv']
 brine_sampler_phz = VTKSampler(file_name_phz)
 brine_sampler_phz.constant_extended_fields = constant_extended_fields
-brine_sampler_phz.conversion_factors = (1.0, 1.0, 1.0)  # (z,h,p)
+brine_sampler_phz.conversion_factors = (1.0, 1.0e3, 10.0)  # (z,h,p)
 model.vtk_sampler = brine_sampler_phz
 
 brine_sampler_ptz = VTKSampler(file_name_ptz)
@@ -889,7 +890,7 @@ P_proj, H_proj, T_proj, S_proj = model.load_and_project_reference_data()
 z_proj = (1.0e-3) * np.ones_like(S_proj)
 par_points = np.array((z_proj, H_proj, P_proj)).T
 model.vtk_sampler.sample_at(par_points)
-H_vtk = model.vtk_sampler.sampled_could.point_data['H']
+H_vtk = model.vtk_sampler.sampled_could.point_data['H'] * 1.0e-6
 T_vtk = model.vtk_sampler.sampled_could.point_data['Temperature']
 S_vtk = model.vtk_sampler.sampled_could.point_data['S_l']
 
@@ -934,10 +935,10 @@ def draw_and_save_comparison(T_proj,T_vtk,S_proj,S_vtk,H_proj,H_vtk):
 draw_and_save_comparison(T_proj,T_vtk,S_proj,S_vtk,H_proj,H_vtk)
 
 # project solution as initial guess
-# x = model.equation_system.get_variable_values(iterate_index=0).copy()
-# delta_x = model.increment_from_projected_solution()
-# x_k = x + delta_x
-# model.equation_system.set_variable_values(values=x_k, iterate_index=0)
+x = model.equation_system.get_variable_values(iterate_index=0).copy()
+delta_x = model.increment_from_projected_solution()
+x_k = x + delta_x
+model.equation_system.set_variable_values(values=x_k, iterate_index=0)
 
 # assert False
 # print geometry
