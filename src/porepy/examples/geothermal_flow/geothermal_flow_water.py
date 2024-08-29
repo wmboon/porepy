@@ -196,7 +196,7 @@ class GeothermalWaterFlowModel(FlowModel):
                 if np.linalg.norm(res_g[eq_idx]) < eps_tol:
                     field_to_skip.append(field_name)
             print('No line search performed on the fields: ', field_to_skip)
-            max_searches = 25
+            max_searches = 15
             beta = 2.0/3.0  # reduction factor for alpha
             c = 1.0e-6  # Armijo condition constant
             alpha = np.ones(9) # initial step size
@@ -225,8 +225,8 @@ class GeothermalWaterFlowModel(FlowModel):
                     if field_name in field_to_skip:
                         continue
                     eq_idx, dof_idx = dofs_idx[field_name]
-                    # Armijo_condition[field_idx] = np.any(np.linalg.norm(res_g_k[eq_idx]) > np.linalg.norm(res_g[eq_idx]) + c * alpha[field_idx] * np.dot(res_g[eq_idx], delta_x[dof_idx]))
-                    Armijo_condition[field_idx] = np.any(np.linalg.norm(res_g_k) > np.linalg.norm(res_g) + c * np.mean(alpha) * np.dot(res_g, delta_x))
+                    Armijo_condition[field_idx] = np.any(np.linalg.norm(res_g_k[eq_idx]) > np.linalg.norm(res_g[eq_idx]) + c * alpha[field_idx] * np.dot(res_g[eq_idx], delta_x[dof_idx]))
+                    # Armijo_condition[field_idx] = np.any(np.linalg.norm(res_g_k) > np.linalg.norm(res_g) + c * np.mean(alpha) * np.dot(res_g, delta_x))
                     if Armijo_condition[field_idx]:
                         alpha[field_idx] *= beta
                 k+=1
