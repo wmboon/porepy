@@ -21,7 +21,7 @@ day = 86400 #seconds in a day.
 year = 365.0 * day
 tf = 2000.0 * year # final time [2000 years]
 # dt = 2000.0 * year # time step size [2000 years]
-dt = 1.0 * year # time step size [1.0 years]
+dt = 2.0 * year # time step size [1.0 years]
 time_manager = pp.TimeManager(
     schedule=[0.0, tf],
     dt_init=dt,
@@ -845,7 +845,7 @@ model = GeothermalWaterFlowModel(params)
 parametric_space_ref_level = 2
 file_name_prefix = "model_configuration/constitutive_description/driesner_vtk_files/"
 file_name_phz = (
-    file_name_prefix + "XHP_l" + str(parametric_space_ref_level) + "_modified_low_salt_content.vtk"
+    file_name_prefix + "XHP_l" + str(parametric_space_ref_level) + "_modified_iapws.vtk"
 )
 file_name_ptz = (
     file_name_prefix + "XTP_l" + str(parametric_space_ref_level) + "_modified.vtk"
@@ -854,7 +854,7 @@ file_name_ptz = (
 constant_extended_fields = ['S_v', 'S_l', 'S_h', 'Xl', 'Xv']
 brine_sampler_phz = VTKSampler(file_name_phz)
 brine_sampler_phz.constant_extended_fields = constant_extended_fields
-brine_sampler_phz.conversion_factors = (1.0, 1.0e3, 10.0)  # (z,h,p)
+brine_sampler_phz.conversion_factors = (1.0, 1.0, 1.0)  # (z,h,p)
 model.vtk_sampler = brine_sampler_phz
 
 brine_sampler_ptz = VTKSampler(file_name_ptz)
@@ -875,7 +875,7 @@ P_proj, H_proj, T_proj, S_proj = model.load_and_project_reference_data()
 z_proj = (1.0e-3) * np.ones_like(S_proj)
 par_points = np.array((z_proj, H_proj, P_proj)).T
 model.vtk_sampler.sample_at(par_points)
-H_vtk = model.vtk_sampler.sampled_could.point_data['H'] * 1.0e-6
+H_vtk = model.vtk_sampler.sampled_could.point_data['H']
 T_vtk = model.vtk_sampler.sampled_could.point_data['Temperature']
 S_vtk = model.vtk_sampler.sampled_could.point_data['S_l']
 
