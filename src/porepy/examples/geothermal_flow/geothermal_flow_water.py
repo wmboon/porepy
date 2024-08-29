@@ -50,7 +50,7 @@ params = {
     "nl_convergence_tol": np.inf,
     "nl_convergence_mass_tol_res": s_tol * 1.0e-5,
     "nl_convergence_energy_tol_res": s_tol * 1.0e-4,
-    "nl_convergence_temperature_tol_res": s_tol * 1.0e-3,
+    "nl_convergence_temperature_tol_res": s_tol * 1.0e-2,
     "nl_convergence_fractions_tol_res": s_tol * 1.0e-3,
     "max_iterations": 100,
 }
@@ -135,7 +135,7 @@ class GeothermalWaterFlowModel(FlowModel):
         delta_x[var_p_idx] = delta_x_p
 
         # equilibrate secondary fields
-        self.rectify_secondary_fields(delta_x)
+        # [var_s_idx] = self.rectify_secondary_fields(delta_x)
         # delta_x[var_s_idx] = -1.0 * res_g[eq_s_idx]
 
         reduce_linear_system_q = self.params.get("reduce_linear_system_q", False)
@@ -180,12 +180,12 @@ class GeothermalWaterFlowModel(FlowModel):
                 'p': 0,
                 'z': 1,
                 'h': 2,
-                't': 3,
-                's': 4,
-                'xw_v': 5,
-                'xw_l': 6,
-                'xs_v': 7,
-                'xs_l': 8,
+                # 't': 3,
+                # 's': 4,
+                # 'xw_v': 5,
+                # 'xw_l': 6,
+                # 'xs_v': 7,
+                # 'xs_l': 8,
             }
 
             eps_tol = 0.0
@@ -196,14 +196,14 @@ class GeothermalWaterFlowModel(FlowModel):
                 if np.linalg.norm(res_g[eq_idx]) < eps_tol:
                     field_to_skip.append(field_name)
             print('No line search performed on the fields: ', field_to_skip)
-            max_searches = 15
+            max_searches = 10
             beta = 2.0/3.0  # reduction factor for alpha
             c = 1.0e-6  # Armijo condition constant
             alpha = np.ones(9) # initial step size
             k = 0
             x_k = x + delta_x
 
-            Armijo_condition = [True, True, True, True, True, True, True, True, True]
+            Armijo_condition = [True, True, True]
             for i, field_name in enumerate(fields_idx.keys()):
                 if field_name in field_to_skip:
                     Armijo_condition[i] = False
@@ -216,6 +216,7 @@ class GeothermalWaterFlowModel(FlowModel):
                     _, dof_idx = dofs_idx[field_name]
                     x_k[dof_idx] = x[dof_idx] + alpha[field_idx] * delta_x[dof_idx]
                 # set new state
+                x_k[var_s_idx] = self.rectify_secondary_fields(x_k - x)
                 self.equation_system.set_variable_values(values=x_k, iterate_index=0)
                 self.update_secondary_quantities()
                 self.update_discretizations()
@@ -245,7 +246,7 @@ class GeothermalWaterFlowModel(FlowModel):
             delta_x = x_k - x
             self.equation_system.set_variable_values(values=x, iterate_index=0)
             # self.postprocessing_thermal_overshoots(delta_x)
-            self.rectify_secondary_fields(delta_x)
+            # self.rectify_secondary_fields(delta_x)
             # if k == max_searches:
             #     res_tol_mass = self.params['nl_convergence_mass_tol_res']
             #     res_tol_energy = self.params['nl_convergence_energy_tol_res']
@@ -688,12 +689,6 @@ class GeothermalWaterFlowModel(FlowModel):
         p_dof_idx = self.equation_system.dofs_of(['pressure'])
         z_dof_idx = self.equation_system.dofs_of(['z_NaCl'])
         h_dof_idx = self.equation_system.dofs_of(['enthalpy'])
-        t_dof_idx = self.equation_system.dofs_of(['temperature'])
-        s_dof_idx = self.equation_system.dofs_of(['s_gas'])
-        xw_v_dof_idx = self.equation_system.dofs_of(['x_H2O_gas'])
-        xw_l_dof_idx = self.equation_system.dofs_of(['x_H2O_liq'])
-        xs_v_dof_idx = self.equation_system.dofs_of(['x_NaCl_gas'])
-        xs_l_dof_idx = self.equation_system.dofs_of(['x_NaCl_liq'])
 
         p_k = delta_x[p_dof_idx] + x0[p_dof_idx]
         z_k = delta_x[z_dof_idx] + x0[z_dof_idx]
@@ -707,23 +702,11 @@ class GeothermalWaterFlowModel(FlowModel):
         Xs_v_k = self.vtk_sampler.sampled_could.point_data['Xv']
         Xs_l_k = self.vtk_sampler.sampled_could.point_data['Xl']
 
-        delta_t = t_k - x0[t_dof_idx]
-        delta_s = s_k - x0[s_dof_idx]
-        delta_Xw_v = Xw_v_k - x0[xw_v_dof_idx]
-        delta_Xw_l = Xw_l_k - x0[xw_l_dof_idx]
-        delta_Xs_v = Xs_v_k - x0[xs_v_dof_idx]
-        delta_Xs_l = Xs_l_k - x0[xs_l_dof_idx]
+        secondary_x_k = np.concatenate([t_k,s_k,Xw_v_k,Xw_l_k,Xs_v_k,Xs_l_k])
 
-        deltas = [delta_t, delta_s, delta_Xw_v, delta_Xw_l, delta_Xs_v, delta_Xs_l]
-        dofs_idx = [t_dof_idx, s_dof_idx, xw_v_dof_idx, xw_l_dof_idx, xs_v_dof_idx,
-                    xs_l_dof_idx]
-        # update deltas
-        for k_field, conv_state in enumerate(deltas):
-            delta = deltas[k_field]
-            dof_idx = dofs_idx[k_field]
-            delta_x[dof_idx] = delta
         te = time.time()
         print("Elapsed time for postprocessing secondary increments: ", te - tb)
+        return secondary_x_k
 
     def check_convergence(
         self,
