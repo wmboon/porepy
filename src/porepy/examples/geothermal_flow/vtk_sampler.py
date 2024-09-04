@@ -95,17 +95,22 @@ class VTKSampler:
         x_par = points.copy()
         self._apply_conversion_factor(x_par)
         self._apply_translation_factor(x_par)
+        self.__project_points_on_collapse_directions(x_par)
 
         point_cloud = pyvista.PolyData(x_par)
         self.sampled_could = point_cloud.sample(self._search_space)
-        check_enclosed_points = point_cloud.select_enclosed_points(
-            self.boundary_surface, check_surface=False
-        )
-        external_idx = np.logical_not(
-            check_enclosed_points.point_data["SelectedPoints"]
-        )
-        self.__release_memory_of(point_cloud)
-        self.__release_memory_of(check_enclosed_points)
+        # check_enclosed_points = point_cloud.select_enclosed_points(
+        #     self.boundary_surface, check_surface=False
+        # )
+        # external_idx = np.logical_not(
+        #     check_enclosed_points.point_data["SelectedPoints"]
+        # )
+        external_idx = self.__points_out_side_parametric_space(x_par)
+        if np.any(external_idx):
+            print('points out side parametic space')
+            print('idx: ', x_par[external_idx])
+        # self.__release_memory_of(point_cloud)
+        # self.__release_memory_of(check_enclosed_points)
         if self.taylor_extended_q:
             self.__taylor_expansion(x_par, external_idx)
 
@@ -144,6 +149,25 @@ class VTKSampler:
         self._boundary_surface = self._search_space.extract_surface(pass_pointid=False, pass_cellid=False, nonlinear_subdivision=0)
         te = time.time()
         print("VTKSampler:: Time for loading interpolation space: ", te - tb)
+
+    def __project_points_on_collapse_directions(self, xv):
+        bounds = self.search_space.bounds
+        xmin, xmax, ymin, ymax, zmin, zmax = bounds
+
+        if np.isclose(xmin, xmax):
+            xv[:, 0] = xmax
+
+        if np.isclose(ymin, ymax):
+            xv[:, 1] = ymax
+
+        if np.isclose(zmin, zmax):
+            xv[:, 2] = zmax
+
+    def __points_out_side_parametric_space(self, xv):
+        bounds = self.search_space.bounds
+        # facets predicates
+        predicate = cp.inside_predicate(*xv.T, bounds)
+        return np.logical_not(predicate)
 
     def __map_external_points_to_surface(self, xv):
         bounds = self.search_space.bounds
@@ -268,7 +292,8 @@ class VTKSampler:
         xv[ent_q, 2] = zmax
 
     def __taylor_expansion(self, points, external_idx):
-
+        if not np.any(external_idx):
+            return
         xv = points[external_idx].copy()
         self.__map_external_points_to_surface(xv)
 

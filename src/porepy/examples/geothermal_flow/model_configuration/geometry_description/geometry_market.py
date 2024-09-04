@@ -210,7 +210,7 @@ class SimpleGeometry1D(Geometry):
     _outlet_centre:np.ndarray = np.array([2000.0, 5.0, 0.0])
     def set_domain(self) -> None:
         x_length = self.solid.convert_units(2000.0,"m")
-        y_length = self.solid.convert_units(10.0,"m")
+        y_length = self.solid.convert_units(25.0,"m")
         box:dict[str, pp.number] = {"xmax": x_length,"ymax":y_length}
         self._domain = pp.Domain(box)
         
@@ -218,7 +218,7 @@ class SimpleGeometry1D(Geometry):
         return self.params.get("grid_type", "cartesian")
     
     def meshing_arguments(self) -> dict:
-        cell_size = self.solid.convert_units(25.0, "m")
+        cell_size = self.solid.convert_units(10.0, "m")
         mesh_args: dict[str, float] = {"cell_size": cell_size}
         return mesh_args
 

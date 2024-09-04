@@ -79,8 +79,8 @@ class BoundaryConditions(BoundaryConditionsCF):
         boundary_grid: pp.BoundaryGrid
     ) -> np.ndarray:
         inlet_idx, _ = self.get_inlet_outlet_sides(boundary_grid)
-        z_init = 1.0e-4
-        z_inlet = 1.0e-4
+        z_init = 0.0
+        z_inlet = 0.0
         if component.name == "H2O":
             z_H2O = (1 - z_init) * np.ones(boundary_grid.num_cells)
             z_H2O[inlet_idx] = 1 - z_inlet
@@ -135,7 +135,7 @@ class InitialConditions(InitialConditionsCF):
     def initial_overall_fraction(
         self, component: ppc.Component, sd: pp.Grid
     ) -> np.ndarray:
-        z = 1.0e-4
+        z = 0.0
         if component.name == "H2O":
             return (1 - z) * np.ones(sd.num_cells)
         else:
