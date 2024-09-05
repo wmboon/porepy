@@ -284,12 +284,14 @@ class SecondaryEquations(SecondaryEquationsMixin):
         par_points = np.array((z_NaCl, h, p)).T
         self.vtk_sampler.sample_at(par_points)
 
+        T = self.vtk_sampler.sampled_could.point_data["Temperature"]  # [K]
         # mass fraction
         rho_v = self.vtk_sampler.sampled_could.point_data['Rho_v']
         s_v = self.vtk_sampler.sampled_could.point_data['S_v']
         Rho = self.vtk_sampler.sampled_could.point_data['Rho']
         beta = s_v * rho_v / Rho
-        return beta
+        T_star = T + beta * h * h
+        return T_star
 
     def temperature_func(
         self,

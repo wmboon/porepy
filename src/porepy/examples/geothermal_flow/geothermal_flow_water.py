@@ -22,24 +22,24 @@ year = 365.0 * day
 tf = 2000.0 * year # final time [2000 years]
 # dt = 2000.0 * year # time step size [2000 years]
 dt = 1.0 * year # time step size [1.0 years]
-# time_manager = pp.TimeManager(
-#     schedule=[0.0, tf],
-#     dt_init=dt,
-#     constant_dt=True,
-#     iter_max=50,
-#     print_info=True,
-# )
-
 time_manager = pp.TimeManager(
     schedule=[0.0, tf],
     dt_init=dt,
-    constant_dt=False,
-    dt_min_max=(0.005*dt, dt),
-    iter_relax_factors=(0.5, 2.0),
-    iter_optimal_range=(5, 15),
-    iter_max=30,
+    constant_dt=True,
+    iter_max=50,
     print_info=True,
 )
+
+# time_manager = pp.TimeManager(
+#     schedule=[0.0, tf],
+#     dt_init=dt,
+#     constant_dt=False,
+#     dt_min_max=(0.005*dt, dt),
+#     iter_relax_factors=(0.5, 2.0),
+#     iter_optimal_range=(5, 15),
+#     iter_max=30,
+#     print_info=True,
+# )
 
 solid_constants = pp.SolidConstants(
     {
@@ -147,8 +147,10 @@ class GeothermalWaterFlowModel(FlowModel):
         # delta_x[var_p_idx] = delta_x_p
 
         # equilibrate secondary fields
-        # [var_s_idx] = self.rectify_secondary_fields(delta_x)
-        # delta_x[var_s_idx] = -1.0 * res_g[eq_s_idx]
+        self.postprocessing_overshoots(delta_x)
+        self.postprocessing_thermal_overshoots(delta_x)
+        x0 = self.equation_system.get_variable_values(iterate_index=0)
+        delta_x[var_s_idx] = self.rectify_secondary_fields(delta_x) - x0[var_s_idx]
 
         reduce_linear_system_q = self.params.get("reduce_linear_system_q", False)
         if reduce_linear_system_q:
@@ -167,7 +169,7 @@ class GeothermalWaterFlowModel(FlowModel):
         print("Elapsed time linear solve: ", te - tb)
         # self.recompute_secondary_residuals(delta_x, res_g)
 
-        self.postprocessing_overshoots(delta_x)
+        # self.postprocessing_overshoots(delta_x)
 
 
         # res_tol_mass = self.params['nl_convergence_mass_tol_res']
@@ -176,11 +178,30 @@ class GeothermalWaterFlowModel(FlowModel):
         # res_z_norm = np.linalg.norm(res_g[eq_z_dof_idx])
         # res_h_norm = np.linalg.norm(res_g[eq_h_dof_idx])
         # primary_residuals = [res_p_norm, res_z_norm, res_h_norm]
-        # converged_state_Q = np.all(np.array(primary_residuals) < 1000.0 * np.max([res_tol_mass,res_tol_energy]))
+        # converged_state_Q = np.all(np.array(primary_residuals) < 10.0 * np.max([res_tol_mass,res_tol_energy]))
         # if converged_state_Q:
-        #     print('Primary residuals norm: ', [res_p_norm,res_z_norm,res_h_norm])
-        # self.postprocessing_thermal_overshoots(delta_x)
+        #     print('postprocessing_thermal_overshoots:: Triggered.')
+        #     self.postprocessing_thermal_overshoots(delta_x)
+        #     self.postprocessing_overshoots(delta_x)
+
         # self.postprocessing_overshoots(delta_x)
+        # self.postprocessing_thermal_overshoots(delta_x)
+
+        # res_tol_energy = self.params['nl_convergence_energy_tol_res']
+        # not_converged_res = np.logical_not(np.abs(res_g[eq_h_dof_idx]) < res_tol_energy)
+        # if np.any(not_converged_res):
+        #     x0 = self.equation_system.get_variable_values(iterate_index=0)
+        #     p_k = delta_x[p_dof_idx] + x0[p_dof_idx]
+        #     z_k = delta_x[z_dof_idx] + x0[z_dof_idx]
+        #     h_k = delta_x[h_dof_idx] + x0[h_dof_idx]
+        #     par_points = np.array((z_k, h_k, p_k)).T
+        #     self.vtk_sampler.sample_at(par_points)
+        #     t_k = self.vtk_sampler.sampled_could.point_data['Temperature']
+        #     s_k = self.vtk_sampler.sampled_could.point_data['S_v']
+        #     print('Energy residuals.', res_g[eq_h_dof_idx][not_converged_res])
+        #     print('states: ', par_points[not_converged_res])
+        #     print('temperature states: ', t_k[not_converged_res])
+        #     print('saturation states: ', s_k[not_converged_res])
 
         line_search_Q = True
         if line_search_Q:
@@ -221,7 +242,7 @@ class GeothermalWaterFlowModel(FlowModel):
                 if np.linalg.norm(res_g[eq_idx]) < eps_tol:
                     field_to_skip.append(field_name)
             print('No line search performed on the fields: ', field_to_skip)
-            max_searches = 8
+            max_searches = 5
             betas = [0.9, 0.7, 0.6]  # reduction factor for alpha
             c = 1.0e-6  # Armijo condition constant
             alpha = np.ones(3) # initial step size
@@ -289,9 +310,6 @@ class GeothermalWaterFlowModel(FlowModel):
 
             te = time.time()
             print("Elapsed time for backtracking line search: ", te - tb)
-        # if k == max_searches:
-        #     self.postprocessing_thermal_overshoots(delta_x)
-        #     self.postprocessing_overshoots(delta_x)
         print("End of solution procedure")
         print("")
         print("")
@@ -431,26 +449,26 @@ class GeothermalWaterFlowModel(FlowModel):
         # control overshoots in:
         # pressure
         new_p = delta_x[p_dof_idx] + p_0
-        new_p = np.where(new_p < pmin, pmin, new_p)
-        new_p = np.where(new_p > pmax, pmax, new_p)
+        new_p = np.where(new_p < pmin, p_0, new_p)
+        new_p = np.where(new_p > pmax, p_0, new_p)
         delta_x[p_dof_idx] = new_p - p_0
 
         # composition
         new_z = delta_x[z_dof_idx] + z_0
-        new_z = np.where(new_z < zmin, zmin, new_z)
-        new_z = np.where(new_z > zmax, zmax, new_z)
+        new_z = np.where(new_z < zmin, z_0, new_z)
+        new_z = np.where(new_z > zmax, z_0, new_z)
         delta_x[z_dof_idx] = new_z - z_0
 
         # enthalpy
         new_h = delta_x[h_dof_idx] + h_0
-        new_h = np.where(new_h < hmin, hmin, new_h)
-        new_h = np.where(new_h > hmax, hmax, new_h)
+        new_h = np.where(new_h < hmin, h_0, new_h)
+        new_h = np.where(new_h > hmax, h_0, new_h)
         delta_x[h_dof_idx] = new_h - h_0
 
         # temperature
         new_t = delta_x[t_dof_idx] + t_0
-        new_t = np.where(new_t < 100.0, 100.0, new_t)
-        new_t = np.where(new_t > 1273.15, 1273.15, new_t)
+        new_t = np.where(new_t < 100.0, t_0, new_t)
+        new_t = np.where(new_t > 1273.15, t_0, new_t)
         delta_x[t_dof_idx] = (new_t - t_0)
 
         # secondary fractions
@@ -476,7 +494,6 @@ class GeothermalWaterFlowModel(FlowModel):
         pmin /= p_scale
         pmax /= p_scale
 
-        dh_max = 1.0e-1
         x0 = self.equation_system.get_variable_values(iterate_index=0)
         p_dof_idx = self.equation_system.dofs_of(['pressure'])
         z_dof_idx = self.equation_system.dofs_of(['z_NaCl'])
@@ -490,26 +507,25 @@ class GeothermalWaterFlowModel(FlowModel):
         p_k = delta_x[p_dof_idx] + x0[p_dof_idx]
         z_k = delta_x[z_dof_idx] + x0[z_dof_idx]
         h_k = delta_x[h_dof_idx] + x0[h_dof_idx]
-        par_points = np.array((z_0, h_0, p_0)).T
+        par_points = np.array((z_k, h_k, p_k)).T
         self.vtk_sampler.sample_at(par_points)
 
-        h_overshoots_Q = np.logical_and(h_k < hmin, h_k > hmax)
-        if np.any(h_overshoots_Q):
-            aka = 0
-
+        T_k = self.vtk_sampler.sampled_could.point_data["Temperature"]  # [K]
+        dTdH_k = self.vtk_sampler.sampled_could.point_data["grad_Temperature"][:,1]
+        # mass fraction
         rho_v_k = self.vtk_sampler.sampled_could.point_data['Rho_v']
-        s_k = self.vtk_sampler.sampled_could.point_data['S_v']
+        s_v_k = self.vtk_sampler.sampled_could.point_data['S_v']
         Rho_k = self.vtk_sampler.sampled_could.point_data['Rho']
-        beta_mass_v = s_k * rho_v_k / Rho_k
+        beta_k = s_v_k * rho_v_k / Rho_k
+        T_star = T_k + beta_k * h_k * h_k
 
-        multiphase_Q = np.logical_and(beta_mass_v > 0.0, beta_mass_v < 1.0)
-        # overshoots_idx = np.where(np.logical_or(h_overshoots_Q,multiphase_Q))[0]
-        overshoots_idx = np.where(multiphase_Q)[0]
+        h_overshoots_Q = np.isclose(dTdH_k, 0.0)
+        overshoots_idx = np.where(h_overshoots_Q)[0]
         if overshoots_idx.shape[0] > 0:
             tb = time.time()
             p_red = p_k[overshoots_idx]
-            z_red = z_0[overshoots_idx]
-            beta_red = beta_mass_v[overshoots_idx]
+            z_red = z_k[overshoots_idx]
+            beta_red = T_star[overshoots_idx]
             h, idx = self.bisection_method(p_red, z_red, beta_red)
             if idx.shape[0] != 0:
                 print("Applying enthalpy correction.")
@@ -520,7 +536,7 @@ class GeothermalWaterFlowModel(FlowModel):
             print("Elapsed time for bisection enthalpy correction: ", te - tb)
         return
 
-    def bisection_method(self, p, z, beta_target, tol=1e-1, max_iter=100):
+    def bisection_method(self, p, z, beta_target, tol=1e-6, max_iter=500):
         zmin, zmax, hmin, hmax, pmin, pmax = self.vtk_sampler.search_space.bounds
         z_scale, h_scale, p_scale = self.vtk_sampler.conversion_factors
         hmin /= h_scale
@@ -886,7 +902,7 @@ class GeothermalWaterFlowModel(FlowModel):
 # Instance of the computational model
 model = GeothermalWaterFlowModel(params)
 
-parametric_space_ref_level = 2
+parametric_space_ref_level = 1
 file_name_prefix = "model_configuration/constitutive_description/driesner_vtk_files/"
 file_name_phz = (
     file_name_prefix + "XHP_l" + str(parametric_space_ref_level) + "_simplex_iapws.vtk"
