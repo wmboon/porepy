@@ -35,10 +35,9 @@ time_manager = pp.TimeManager(
     dt_init=dt,
     constant_dt=False,
     dt_min_max=(0.005*dt, dt),
-    iter_relax_factors=(0.4, 2.0),
-    iter_optimal_range=(5, 50),
-    recomp_factor=0.3,
-    iter_max=100,
+    iter_relax_factors=(0.5, 2.0),
+    iter_optimal_range=(5, 15),
+    iter_max=30,
     print_info=True,
 )
 
@@ -180,8 +179,8 @@ class GeothermalWaterFlowModel(FlowModel):
         # converged_state_Q = np.all(np.array(primary_residuals) < 1000.0 * np.max([res_tol_mass,res_tol_energy]))
         # if converged_state_Q:
         #     print('Primary residuals norm: ', [res_p_norm,res_z_norm,res_h_norm])
-        #     self.postprocessing_thermal_overshoots(delta_x)
-        #     self.postprocessing_overshoots(delta_x)
+        # self.postprocessing_thermal_overshoots(delta_x)
+        # self.postprocessing_overshoots(delta_x)
 
         line_search_Q = True
         if line_search_Q:
@@ -222,8 +221,8 @@ class GeothermalWaterFlowModel(FlowModel):
                 if np.linalg.norm(res_g[eq_idx]) < eps_tol:
                     field_to_skip.append(field_name)
             print('No line search performed on the fields: ', field_to_skip)
-            max_searches = 5
-            betas = [0.9, 0.9, 0.8]  # reduction factor for alpha
+            max_searches = 8
+            betas = [0.9, 0.7, 0.6]  # reduction factor for alpha
             c = 1.0e-6  # Armijo condition constant
             alpha = np.ones(3) # initial step size
             k = 0
@@ -504,7 +503,8 @@ class GeothermalWaterFlowModel(FlowModel):
         beta_mass_v = s_k * rho_v_k / Rho_k
 
         multiphase_Q = np.logical_and(beta_mass_v > 0.0, beta_mass_v < 1.0)
-        overshoots_idx = np.where(np.logical_or(h_overshoots_Q,multiphase_Q))[0]
+        # overshoots_idx = np.where(np.logical_or(h_overshoots_Q,multiphase_Q))[0]
+        overshoots_idx = np.where(multiphase_Q)[0]
         if overshoots_idx.shape[0] > 0:
             tb = time.time()
             p_red = p_k[overshoots_idx]
@@ -886,7 +886,7 @@ class GeothermalWaterFlowModel(FlowModel):
 # Instance of the computational model
 model = GeothermalWaterFlowModel(params)
 
-parametric_space_ref_level = 0
+parametric_space_ref_level = 2
 file_name_prefix = "model_configuration/constitutive_description/driesner_vtk_files/"
 file_name_phz = (
     file_name_prefix + "XHP_l" + str(parametric_space_ref_level) + "_simplex_iapws.vtk"
