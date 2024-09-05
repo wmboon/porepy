@@ -290,7 +290,7 @@ class SecondaryEquations(SecondaryEquationsMixin):
         s_v = self.vtk_sampler.sampled_could.point_data['S_v']
         Rho = self.vtk_sampler.sampled_could.point_data['Rho']
         beta = s_v * rho_v / Rho
-        T_star = T + beta * h * h
+        T_star = T + beta * h
         return T_star
 
     def temperature_func(

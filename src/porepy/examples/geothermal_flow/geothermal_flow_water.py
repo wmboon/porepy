@@ -61,7 +61,7 @@ params = {
     "nl_convergence_tol": np.inf,
     "nl_convergence_mass_tol_res": s_tol * 1.0e-7,
     "nl_convergence_energy_tol_res": s_tol * 1.0e-6,
-    "nl_convergence_temperature_tol_res": s_tol * 1.0e-3,
+    "nl_convergence_temperature_tol_res": s_tol * 1.0e-2,
     "nl_convergence_fractions_tol_res": s_tol * 1.0e-4,
     "max_iterations": 100,
 }
@@ -511,21 +511,23 @@ class GeothermalWaterFlowModel(FlowModel):
         self.vtk_sampler.sample_at(par_points)
 
         T_k = self.vtk_sampler.sampled_could.point_data["Temperature"]  # [K]
-        dTdH_k = self.vtk_sampler.sampled_could.point_data["grad_Temperature"][:,1]
+        dTdH_k = self.vtk_sampler.sampled_could.point_data["grad_Temperature"][:, 1]
         # mass fraction
         rho_v_k = self.vtk_sampler.sampled_could.point_data['Rho_v']
         s_v_k = self.vtk_sampler.sampled_could.point_data['S_v']
         Rho_k = self.vtk_sampler.sampled_could.point_data['Rho']
         beta_k = s_v_k * rho_v_k / Rho_k
-        T_star = T_k + beta_k * h_k * h_k
+        T_star = T_k + beta_k * h_k
 
-        h_overshoots_Q = np.isclose(dTdH_k, 0.0)
-        overshoots_idx = np.where(h_overshoots_Q)[0]
+        multiphase_Q = np.logical_and(beta_k > 0.0, beta_k < 1.0)
+        h_overshoots_Q = np.isclose(np.abs(dTdH_k), 0.0, rtol=1.e-1, atol=1.e-1)
+        overshoots_idx = np.where(np.logical_or(h_overshoots_Q , multiphase_Q))[0]
         if overshoots_idx.shape[0] > 0:
             tb = time.time()
             p_red = p_k[overshoots_idx]
             z_red = z_k[overshoots_idx]
             beta_red = T_star[overshoots_idx]
+            print("Number of points to be processed with bisection: ", overshoots_idx.shape[0])
             h, idx = self.bisection_method(p_red, z_red, beta_red)
             if idx.shape[0] != 0:
                 print("Applying enthalpy correction.")
