@@ -34,14 +34,15 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
 import numba
 import numpy as np
 
 from .._core import NUMBA_CACHE, NUMBA_FAST_MATH
+from ..base import Component
 from ..eos_compiler import EoSCompiler
-from ..states import PhaseState
+from ..states import PhaseProperties, PhysicalState
 from ..utils import normalize_rows
 from .eos_s import (
     A_CRIT,
@@ -66,7 +67,7 @@ from .eos_s import (
     d_Z_triple_f,
     discriminant,
 )
-from .pr_components import ComponentPR
+from .pr_utils import thd_function_type
 
 __all__ = [
     "characteristic_residual",
@@ -74,7 +75,7 @@ __all__ = [
     "is_extended_root",
     "compressibility_factor",
     "compressibility_factor_dAB",
-    "PhaseStateCubic",
+    "PhasePropertiesCubic",
     "PengRobinsonCompiler",
 ]
 
@@ -1187,7 +1188,7 @@ def _compile_volume_derivative(
 
 
 @dataclass
-class PhaseStateCubic(PhaseState):
+class PhasePropertiesCubic(PhaseProperties):
     """Extended data class for cubic equations of state including the compressibility
     factor, cohesion and covolume."""
 
@@ -1230,15 +1231,31 @@ class PhaseStateCubic(PhaseState):
 
 class PengRobinsonCompiler(EoSCompiler):
     """Class providing compiled computations of thermodynamic quantities for the
-    Peng-Robinson EoS."""
+    Peng-Robinson EoS.
 
-    def __init__(self, components: list[ComponentPR]) -> None:
+    Parameters:
+        components: A list of ``num_comp`` component instances.
+        ideal_enthalpies: A list of ``num_comp`` callables representing the ideal
+            enthalpies of individual components in ``components``.
+        bip_matrix: A 2D array containing BIPs for ``components``. Note that only the
+            upper triangle of this matrix is used due to expected symmetry.
+
+    """
+
+    def __init__(
+        self,
+        components: list[Component],
+        ideal_enthalpies: list[thd_function_type],
+        bip_matrix: np.ndarray,
+    ) -> None:
         super().__init__(components)
 
         self._cfuncs: dict[str, Callable] = dict()
         """A collection of internally required, compiled callables"""
 
-        self.symbolic: PengRobinsonSymbolic = PengRobinsonSymbolic(components)
+        self.symbolic: PengRobinsonSymbolic = PengRobinsonSymbolic(
+            components, ideal_enthalpies, bip_matrix
+        )
 
     def compile(self) -> None:
         """Child method compiles essential functions from symbolic part before calling
@@ -1546,13 +1563,13 @@ class PengRobinsonCompiler(EoSCompiler):
 
         return d_kappa_c
 
-    def compute_phase_state(
+    def compute_phase_properties(
         self,
-        phasetype: int,
+        phase_state: PhysicalState,
         p: np.ndarray,
         T: np.ndarray,
-        x: logging.Sequence[np.ndarray],
-    ) -> PhaseStateCubic:
+        x: Sequence[np.ndarray],
+    ) -> PhasePropertiesCubic:
         """Computes and stores additional properties relevant for cubic EoS.
 
         These include:
@@ -1571,11 +1588,11 @@ class PengRobinsonCompiler(EoSCompiler):
 
         d = 2 + self._nc
 
-        prearg_val = self.gufuncs["prearg_val"](phasetype, p, T, xn)
-        prearg_jac = self.gufuncs["prearg_jac"](phasetype, p, T, xn)
+        prearg_val = self.gufuncs["prearg_val"](phase_state.value, p, T, xn)
+        prearg_jac = self.gufuncs["prearg_jac"](phase_state.value, p, T, xn)
 
-        state = PhaseStateCubic(
-            phasetype=phasetype,
+        state = PhasePropertiesCubic(
+            state=phase_state,
             x=x,
             h=self.gufuncs["h"](prearg_val, p, T, xn),
             rho=self.gufuncs["rho"](prearg_val, p, T, xn),

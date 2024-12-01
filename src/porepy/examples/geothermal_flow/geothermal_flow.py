@@ -14,41 +14,27 @@ instances of that object provide functions and their gradients within the produc
 """
 
 from __future__ import annotations
-import os
+
 import time
+
 import numpy as np
+
 import porepy as pp
-from model_configuration.DriesnerModelConfiguration import (
+from porepy.examples.geothermal_flow.model_configuration.DriesnerModelConfiguration import (
     DriesnerBrineFlowModel as FlowModel,
 )
-from vtk_sampler import VTKSampler
-
-os.environ["NUMBA_DISABLE_JIT"] = "1"
+from porepy.examples.geothermal_flow.vtk_sampler import VTKSampler
 
 day = 86400
-tf = 0.001 * day
-dt = 0.0001 * day
-dynamic_time_step_q = False
-if dynamic_time_step_q:
-    time_manager = pp.TimeManager(
-        schedule=[0.0, tf],
-        dt_init=dt,
-        constant_dt=False,
-        dt_min_max = (dt, 0.1 * day),
-        iter_optimal_range = (5, 10),
-        iter_relax_factors = (0.5,1.5),
-        recomp_factor = 0.25,
-        iter_max=50,
-        print_info=True,
-    )
-else:
-    time_manager = pp.TimeManager(
-        schedule=[0.0, tf],
-        dt_init=dt,
-        constant_dt=True,
-        iter_max=50,
-        print_info=True,
-    )
+tf = 0.00005 * day  # final time
+dt = 0.000025 * day  # time step size
+time_manager = pp.TimeManager(
+    schedule=[0.0, tf],
+    dt_init=dt,
+    constant_dt=True,
+    iter_max=50,
+    print_info=True,
+)
 
 solid_constants = pp.SolidConstants(
     {
@@ -68,22 +54,32 @@ params = {
     "prepare_simulation": False,
     "reduce_linear_system_q": False,
     "nl_convergence_tol": np.inf,
-    "nl_convergence_tol_res": 1.0e-4,
+    "nl_convergence_tol_res": 1.0e-3,
     "max_iterations": 50,
-    "petsc_solver_q": True,
-    "darcy_flux_discretization": 'mpfa',
-    "fourier_flux_discretization": 'mpfa',
 }
 
 
 class GeothermalFlowModel(FlowModel):
-    pass
+
+    def after_nonlinear_convergence(self) -> None:
+        super().after_nonlinear_convergence()
+        print("Number of iterations: ", self.nonlinear_solver_statistics.num_iteration)
+        print("Time value: ", self.time_manager.time)
+        print("Time index: ", self.time_manager.time_index)
+        print("")
+
+    def after_simulation(self):
+        self.exporter.write_pvd()
+
 
 # Instance of the computational model
 model = GeothermalFlowModel(params)
 
 parametric_space_ref_level = 2
-file_name_prefix = "model_configuration/constitutive_description/driesner_vtk_files/"
+file_name_prefix = (
+    "src/porepy/examples/geothermal_flow/"
+    + "model_configuration/constitutive_description/driesner_vtk_files/"
+)
 file_name_phz = (
     file_name_prefix + "XHP_l" + str(parametric_space_ref_level) + "_modified.vtk"
 )
@@ -92,14 +88,13 @@ file_name_ptz = (
 )
 
 brine_sampler_phz = VTKSampler(file_name_phz)
-brine_sampler_phz.conversion_factors = (1.0, 1.0e3, 10.0)  # (z [-], h [kJ/kg], p [MPa])
+brine_sampler_phz.conversion_factors = (1.0, 1.0e-3, 1.0e-5)  # (z,h,p)
 model.vtk_sampler = brine_sampler_phz
 
 brine_sampler_ptz = VTKSampler(file_name_ptz)
-brine_sampler_ptz.conversion_factors = (1.0, 1.0, 10.0)  # (z [-], T [K], p [MPa])
-brine_sampler_ptz.translation_factors = (0.0, -273.15, 0.0)  # (z [-], T [C], p [MPa])
+brine_sampler_ptz.conversion_factors = (1.0, 1.0, 1.0e-5)  # (z,t,p)
+brine_sampler_ptz.translation_factors = (0.0, -273.15, 0.0)  # (z,t,p)
 model.vtk_sampler_ptz = brine_sampler_ptz
-
 
 
 tb = time.time()

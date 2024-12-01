@@ -1,11 +1,12 @@
-""">>> import porepy.compositional as ppc
-
-The compositional subpackage provides utilities to model multi-phase multi-component
+"""The compositional subpackage provides utilities to model multi-phase multi-component
 fluid mixtures, and fluid phase equilibrium problems.
 
 The entry point to compositional modelling is the module
 :mod:`porepy.compositional.base`, wich provides means to model a component-context, a
-phase-context and a fluid mixture.
+phase-context and a fluid mixture. Classes for storing the state of a fluid (values of
+primary and secondary variables and their derivatives) can be found in
+:mod:`porepy.compositional.states`, while functionality for coupling with the models is
+provided in :mod:`porepy.compositional.compositional_mixins`.
 
 While the package is in principal self-contained, it provides two interfaces to PorePy's
 modelling framework in the form of model mixins:
@@ -22,11 +23,11 @@ modelling framework in the form of model mixins:
        flow & transport.
     3. For the case of more sophisticated thermodynamics, the groundwork is layed by
        defining a thermodynamic reference state (:mod:`~porepy.compositional._core`)
-       most commonly used in other packages  and literature [3].
+       most commonly used in other packages and literature [3].
     4. Units are standard SI units, and there is in principal no distinguishing between
        massic or molar quantities. Once the modeller decides what the model represents,
        massic or molar values must be consistently enforced.
-       The unly exception is :data:`~porepy.compositional._core.R_IDEAL_MOL`, which is
+       The only exception is :data:`~porepy.compositional._core.R_IDEAL_MOL`, which is
        given as a molar quantity.
 
 References:
@@ -44,9 +45,9 @@ from . import (  # peng_robinson,
     chem_species,
     compositional_mixins,
     eos_compiler,
-    equilibrium_mixins,
     flash,
     states,
+    unified_equilibrium_mixins,
     uniflash_c,
     uniflash_utils_c,
     utils,
@@ -56,9 +57,9 @@ from .base import *
 from .chem_species import *
 from .compositional_mixins import *
 from .eos_compiler import *
-from .equilibrium_mixins import *
 from .flash import *
 from .states import *
+from .unified_equilibrium_mixins import *
 from .uniflash_c import *
 from .uniflash_utils_c import *
 from .utils import *
@@ -68,7 +69,7 @@ __all__.extend(chem_species.__all__)
 __all__.extend(base.__all__)
 __all__.extend(utils.__all__)
 __all__.extend(compositional_mixins.__all__)
-__all__.extend(equilibrium_mixins.__all__)
+__all__.extend(unified_equilibrium_mixins.__all__)
 __all__.extend(flash.__all__)
 __all__.extend(uniflash_c.__all__)
 __all__.extend(states.__all__)
